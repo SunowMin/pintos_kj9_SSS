@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.ejs": "html",
+        "*.txt": "plaintext",
+        "interrupt.h": "c"
+    }
+}

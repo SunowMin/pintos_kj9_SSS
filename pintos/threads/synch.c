@@ -59,6 +59,7 @@ sema_init (struct semaphore *sema, unsigned value) {
    sema_down function. */
 void
 sema_down (struct semaphore *sema) {
+	// [구현 2-4A] Priority 내림차순으로, 올바른 위치에 삽입
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
@@ -67,7 +68,8 @@ sema_down (struct semaphore *sema) {
 	old_level = intr_disable ();
 	while (sema->value == 0) {
 		list_push_back (&sema->waiters, &thread_current ()->elem);
-		thread_block ();
+		// list_insert_ordered(&sema->waiters, &thread_current () -> elem, dsc_priority, NULL);
+		thread_block();
 	}
 	sema->value--;
 	intr_set_level (old_level);
@@ -274,6 +276,7 @@ cond_init (struct condition *cond) {
    we need to sleep. */
 void
 cond_wait (struct condition *cond, struct lock *lock) {
+	// [구현 2-4B] Priority 내림차순으로, 올바른 위치에 삽입
 	struct semaphore_elem waiter;
 
 	ASSERT (cond != NULL);
@@ -282,7 +285,8 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
+	list_push_back (&cond ->waiters, &waiter.elem);
+	// list_insert_ordered (&cond->waiters, &waiter.elem, dsc_priority,  NULL);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);

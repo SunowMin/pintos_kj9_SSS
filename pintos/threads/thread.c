@@ -69,8 +69,7 @@ static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
 static void schedule (void);
 static tid_t allocate_tid (void);
-static bool asc_ticks (const struct list_elem *x, const struct list_elem *y, const void *aux);
-static bool dsc_priority (const struct list_elem *x, const struct list_elem *y, const void *aux);
+
 
 /* Returns true if T appears to point to a valid thread. 보통 ASSERT 용. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -218,23 +217,11 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
-	// // [구현] if the thread has a higher priority than a current thread
-	// if(priority > (thread_get_priority())){
-	// 	// then kickout the current running thread and schedule the created one
-	// 	enum intr_level old_level;
-	// 	old_level = intr_disable();
-	// 	list_push_front(&ready_list, &(t->elem));
-	// 	t -> status = THREAD_READY;
-	// 	intr_set_level(old_level);
-	// 	thread_yield();
-	// } else {
-	// 	// 여기서 ready list에 삽입이 된다!!
-	// 	thread_unblock (t);
-	// }
-	
-	
 
-	
+	// [구현 2-2] 현재 쓰레드보다, 새롭게 추가된 priority가 높은 경우 yield할 것.
+	if(list_entry(list_front(&ready_list), struct thread, elem) -> priority > (thread_get_priority())){
+		thread_yield();
+	}
 
 	return tid;
 }
@@ -270,10 +257,9 @@ thread_unblock (struct thread *t) {
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
 
-	// [추가] When a thread is added to the ready list that has a
-	// higher priority than the current running thread,
-	// the current thread should immediately yield the processor to the new thread
-	list_push_back (&ready_list, &t->elem);
+	// [구현 2-1B] Priority 내림차순을 지킬 수 있게, 올바른 위치에 삽입할 것.
+	//list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, dsc_priority, NULL);
 	t->status = THREAD_READY;
 	// }
 
@@ -346,7 +332,9 @@ thread_yield (void) {
 	// 	return;
 	// }
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		// [구현 2-1A] Priority 내림차순을 지킬 수 있게, 올바른 위치에 삽입할 것.
+		list_insert_ordered(&ready_list, &curr->elem, dsc_priority, NULL);
+		// list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -354,12 +342,16 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+	// [구현 2-3] 우선순위를 재설정. 현재 쓰레드의 우선순위가 더이상 highest가 아닌 경우 yield.
 	thread_current ()->priority = new_priority;
 
-	// (추가) if the current thread no longer has the highest priority, yields.
-	// if (new_priority < (next_thread_to_run () -> priority)){
-	// 	thread_yield();
-	// }
+	// ready list 재정렬
+	list_sort(&ready_list, dsc_priority, NULL);
+
+	// 더 높은 priority가 존재하는 경우 yield
+	if(!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem) -> priority > (thread_get_priority())){
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -656,15 +648,15 @@ allocate_tid (void) {
 	return tid;
 }
 
-/* 리스트 정렬 용도. 두 노드 -> 쓰레드의 priority를 비교. */
-// 오름차순 정렬시
-static bool asc_ticks (const struct list_elem *x, const struct list_elem *y, const void *aux){
+/* tick의 오름차순으로 정렬할 시 사용되는 함수. */
+bool asc_ticks (const struct list_elem *x, const struct list_elem *y, const void *aux){
 	struct thread *tx = list_entry(x, struct thread, elem);
 	struct thread *ty = list_entry(y, struct thread, elem);
 	return (tx -> wakeup_tick) < (ty -> wakeup_tick);
 }
 
-static bool dsc_priority (const struct list_elem *x, const struct list_elem *y, const void *aux){
+/* priority의 내림차순으로 정렬할 시 사용되는 함수. */
+bool dsc_priority (const struct list_elem *x, const struct list_elem *y, const void *aux){
 	struct thread *tx = list_entry(x, struct thread, elem);
 	struct thread *ty = list_entry(y, struct thread, elem);
 	return (tx -> priority) > (ty -> priority);

@@ -154,5 +154,8 @@ int64_t get_min_ticks(void);
 
 void do_iret (struct intr_frame *tf);
 
+bool asc_ticks (const struct list_elem *x, const struct list_elem *y, const void *aux);
+bool dsc_priority (const struct list_elem *x, const struct list_elem *y, const void *aux);
+
 
 #endif /* threads/thread.h */
