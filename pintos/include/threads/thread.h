@@ -106,6 +106,7 @@ struct thread {
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
+	int64_t wakeup_tick;                    /* sleep 중일 때, 깨어날 시간. */
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
@@ -113,6 +114,9 @@ struct thread {
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+
+extern struct thread *idle_thread;
 
 void thread_init (void);
 void thread_start (void);
@@ -141,6 +145,14 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+void do_schedule(int status);
+
+void thread_sleep(int64_t);
+void wake_up(int64_t);
+void save_min_ticks(int64_t);
+int64_t get_min_ticks(void);
+
 void do_iret (struct intr_frame *tf);
+
 
 #endif /* threads/thread.h */
