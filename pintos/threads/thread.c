@@ -69,6 +69,7 @@ static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
 static void schedule (void);
 static tid_t allocate_tid (void);
+void check_front_yield(void);
 
 
 /* Returns true if T appears to point to a valid thread. 보통 ASSERT 용. */
@@ -219,9 +220,7 @@ thread_create (const char *name, int priority,
 	thread_unblock (t);
 
 	// [구현 2-2] 현재 쓰레드보다, 새롭게 추가된 priority가 높은 경우 yield할 것.
-	if(list_entry(list_front(&ready_list), struct thread, elem) -> priority > (thread_get_priority())){
-		thread_yield();
-	}
+	check_front_yield();
 
 	return tid;
 }
@@ -348,10 +347,7 @@ thread_set_priority (int new_priority) {
 	// ready list 재정렬
 	list_sort(&ready_list, dsc_priority, NULL);
 
-	// 더 높은 priority가 존재하는 경우 yield
-	if(!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem) -> priority > (thread_get_priority())){
-		thread_yield();
-	}
+	check_front_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -741,4 +737,12 @@ void save_min_ticks(int64_t new_value){
 // Returns the minimum value of ticks
 int64_t get_min_ticks(void){
 	return min_wakeup_ticks;
+}
+
+// 현재 대기 중인 priority 최댓값 thread가
+// 현재 thread의 priority보다 높은 경우 yield함
+void check_front_yield(void){
+	if(!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem) -> priority > (thread_get_priority())){
+		thread_yield();
+	}
 }

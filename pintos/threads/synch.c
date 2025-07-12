@@ -32,6 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+bool dsc_sema_priority (const struct list_elem *x, const struct list_elem *y, const void *aux);
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -59,7 +61,7 @@ sema_init (struct semaphore *sema, unsigned value) {
    sema_down function. */
 void
 sema_down (struct semaphore *sema) {
-	// [구현 2-4A] Priority 내림차순으로, 올바른 위치에 삽입
+	// [구현 2-4] Priority 내림차순으로, 올바른 위치에 삽입
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
@@ -67,8 +69,8 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
-		// list_insert_ordered(&sema->waiters, &thread_current () -> elem, dsc_priority, NULL);
+		// priority 기준으로 올바른 위치에 삽입해 주는 코드
+		list_insert_ordered(&sema->waiters, &thread_current () -> elem, dsc_priority, NULL);
 		thread_block();
 	}
 	sema->value--;
@@ -106,6 +108,7 @@ sema_try_down (struct semaphore *sema) {
    This function may be called from an interrupt handler. */
 void
 sema_up (struct semaphore *sema) {
+	// [구현 2-5] 깨운 쓰레드의 priority가 더 높은 경우, CPU는 yield해줘야 함
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
@@ -115,6 +118,9 @@ sema_up (struct semaphore *sema) {
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
 	sema->value++;
+
+	// 깨운 쓰레드의 priority가 더 높은 경우 yield
+	check_front_yield();
 	intr_set_level (old_level);
 }
 
@@ -239,9 +245,11 @@ lock_held_by_current_thread (const struct lock *lock) {
 }
 
 /* One semaphore in a list. */
+/* 이걸 바꿔도 되나 아님 priority 확인할 다른 방법이 있나...*/
 struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
+	int priority;						// 정렬 용도 priority.
 };
 
 /* Initializes condition variable COND.  A condition variable
@@ -276,20 +284,24 @@ cond_init (struct condition *cond) {
    we need to sleep. */
 void
 cond_wait (struct condition *cond, struct lock *lock) {
-	// [구현 2-4B] Priority 내림차순으로, 올바른 위치에 삽입
+	// [구현 2-6] Priority 내림차순으로, 올바른 위치에 삽입
+
+	// cond_signal이 해당 condition으로 시그널을 보낼 때까지 대기해야 한다.
+	// waiters 리스트에 대기할 waiter는 struct semaphore_elem 형으로 정의
 	struct semaphore_elem waiter;
 
 	ASSERT (cond != NULL);
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
-
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond ->waiters, &waiter.elem);
-	// list_insert_ordered (&cond->waiters, &waiter.elem, dsc_priority,  NULL);
-	lock_release (lock);
-	sema_down (&waiter.semaphore);
-	lock_acquire (lock);
+	waiter.priority = thread_get_priority();
+
+    // cond의 waiters 리스트(&cond -> waiters)에 지금 쓰레드 (&waiter.elem)를 넣는다. priority의 역순으로 넣는다.
+	list_insert_ordered (&cond->waiters, &waiter.elem, dsc_sema_priority, NULL);
+	lock_release (lock);  // 기존 모니터 락이 임시 해제
+	sema_down (&waiter.semaphore);  // signal 올때까지 wait
+	lock_acquire (lock);  // wait이 풀림
 }
 
 /* If any threads are waiting on COND (protected by LOCK), then
@@ -324,4 +336,11 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
+}
+
+/* priority의 내림차순으로 정렬할 시 사용되는 함수. */
+bool dsc_sema_priority (const struct list_elem *x, const struct list_elem *y, const void *aux){
+	struct semaphore_elem *tx = list_entry(x, struct semaphore_elem, elem);
+	struct semaphore_elem *ty = list_entry(y, struct semaphore_elem, elem);
+	return (tx -> priority) > (ty -> priority);
 }
