@@ -133,7 +133,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 
 
-	// [구현 4-7] timer_interrupt마다 갱신할 멤버들 생신
+	// [구현 4-6] timer_interrupt마다 갱신할 멤버들 생신
 	//enum intr_level old_level;
 	//old_level = intr_disable();
 	if(timer_ticks() % 4 == 0){

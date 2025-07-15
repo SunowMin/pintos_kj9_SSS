@@ -846,6 +846,7 @@ void calc_load_avg(void){
 }
 
 void calc_recent_cpu(struct thread *t){
+	// `recent_cpu`를 재계산하는 함수
 	if(thread_mlfqs){
 	// load_avg, recent_cpu, decay도 fixed point. nice는 integer.
 	int decay = DIV_FLOATS(2 * load_avg, 2 * load_avg + CALC_F);
@@ -855,6 +856,7 @@ void calc_recent_cpu(struct thread *t){
 }
 
 void calc_priority(struct thread *t){
+	// `priority`를 재계산하는 함수
 	if(thread_mlfqs){
 	// priority, nice는 integer. recent_cpu는 fixed point.
 	t -> priority = INT(FLOAT(PRI_MAX) - (t -> recent_cpu / 4) - FLOAT(t -> nice * 2));
