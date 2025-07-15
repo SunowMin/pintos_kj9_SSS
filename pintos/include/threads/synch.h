@@ -37,6 +37,10 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+bool dsc_sema_priority (const struct list_elem *x, const struct list_elem *y, const void *aux);
+bool dsc_donor_priority (const struct list_elem *x, const struct list_elem *y, const void *aux);
+
+void donate(struct thread *c_thread);
 
 /* Optimization barrier.
  *
@@ -46,3 +50,4 @@ void cond_broadcast (struct condition *, struct lock *);
 #define barrier() asm volatile ("" : : : "memory")
 
 #endif /* threads/synch.h */
+

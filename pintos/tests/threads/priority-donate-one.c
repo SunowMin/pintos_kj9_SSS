@@ -37,6 +37,10 @@ test_priority_donate_one (void)
   thread_create ("acquire2", PRI_DEFAULT + 2, acquire2_thread_func, &lock);
   msg ("This thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 2, thread_get_priority ());
+  // printf("리스트의 길이: %d\n", list_size(&(thread_current() -> donations)));
+  // for(struct list_elem *node = list_begin(&(thread_current() -> donations)); node != list_end(&(thread_current() -> donations)); node = list_next(node)){
+  //   printf("lock 주소 %p\n", list_entry(node, struct thread, d_elem) -> wait_on_lock);
+  // }
   lock_release (&lock);
   msg ("acquire2, acquire1 must already have finished, in that order.");
   msg ("This should be the last line before finishing this test.");

@@ -204,6 +204,8 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+	
+	
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -255,6 +257,10 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
+
+// 	for(struct list_elem *node = list_begin(&ready_list); node != list_end(&ready_list); node = list_next(node)){
+//     printf("lock 주소 %d\n", list_entry(node, struct thread, d_elem) -> priority);
+//   }
 
 	// [구현 2-1B] Priority 내림차순을 지킬 수 있게, 올바른 위치에 삽입할 것.
 	//list_push_back (&ready_list, &t->elem);
@@ -342,8 +348,19 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	// [구현 2-3] 우선순위를 재설정. 현재 쓰레드의 우선순위가 더이상 highest가 아닌 경우 yield.
-	thread_current ()->priority = new_priority;
-
+	// [구현 3-5] donation 고려하여, 새롭게 set한 priority와 현재 donate된 priority 중 높은 쪽을 priority로 설정
+	// [구현 4-2] mlfqs 사용 시 비활성화
+	if (thread_mlfqs)
+		return;
+	thread_current () -> saved_priority = new_priority;
+	thread_current () -> priority = new_priority;
+	
+	// donor list 재정렬 후, priority 갱신
+	if (!list_empty(&(thread_current() -> donations))){
+		list_sort(&(thread_current() -> donations), dsc_donor_priority, NULL);
+		donate(thread_current());
+	}
+	
 	// ready list 재정렬
 	list_sort(&ready_list, dsc_priority, NULL);
 
@@ -353,7 +370,8 @@ thread_set_priority (int new_priority) {
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	// (추가) In the presence of priority donation, returns the higher (donated) priority.
+	// [구현 3-6] priority를 기부받은 경우, donated priority를 반환해야 함
+	// 그런데 우리는 saved_priority를 따로 두고 있고, 원래 priority는 그대로니, 더 뭘 해줄 게 없음.
 	return thread_current ()->priority;
 }
 
@@ -434,6 +452,7 @@ kernel_thread (thread_func *function, void *aux) {
 
 /* Does basic initialization of T as a blocked thread named
    NAME. */
+// [구현 3-2] donations 리스트 설정하기.
 static void
 init_thread (struct thread *t, const char *name, int priority) {
 	ASSERT (t != NULL);
@@ -444,7 +463,18 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->status = THREAD_BLOCKED;
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
+	
 	t->priority = priority;
+
+	if(thread_mlfqs){
+		t->nice = 0;
+		t->recent_cpu= 0;
+	} else {
+		t->wait_on_lock = NULL;
+		t->saved_priority = priority;
+		list_init(&t -> donations);
+	}
+	
 	t->magic = THREAD_MAGIC;
 }
 

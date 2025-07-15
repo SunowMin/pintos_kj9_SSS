@@ -107,6 +107,17 @@ struct thread {
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	int64_t wakeup_tick;                    /* sleep 중일 때, 깨어날 시간. */
+
+	// [구현 3-1] struct thread 구조체에 priority donation 멤버 추가.
+	int saved_priority;					// priority donation이 이루어진 경우, donation 이전 priority.
+	struct lock *wait_on_lock;			// 현재 쓰레드가 대기 중인 lock
+	struct list donations;				// 현재 쓰레드에 priority를 기부할 수 있는 쓰레드의 리스트.
+	struct list_elem d_elem;			// donations 리스트에 집어넣기 위한 용도
+
+	// [구현 4-1] struct thread 구조체에 mlfqs 멤버 추가
+	int nice;
+	int recent_cpu; 
+
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
