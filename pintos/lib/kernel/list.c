@@ -246,7 +246,10 @@ list_remove (struct list_elem *elem) {
 }
 
 /* Removes the front element from LIST and returns it.
-   Undefined behavior if LIST is empty before removal. */
+   Undefined behavior if LIST is empty before removal. 
+   LIST에서 맨 앞의 요소를 제거하고 반환한다
+   제거하기 전에 LIST가 비어 있으면 동작이 정의되지 않는다
+   */
 struct list_elem *
 list_pop_front (struct list *list) {
 	struct list_elem *front = list_front (list);
@@ -414,7 +417,10 @@ list_sort (struct list *list, list_less_func *less, void *aux) {
 
 /* Inserts ELEM in the proper position in LIST, which must be
    sorted according to LESS given auxiliary data AUX.
-   Runs in O(n) average case in the number of elements in LIST. */
+   Runs in O(n) average case in the number of elements in LIST.
+   LIST의 적절한 위치에 ELEM을 삽입합니다. 
+   LIST는 보조 데이터 AUX가 주어졌을 때 LESS에 따라 정렬되어야 합니다. 
+   LIST의 요소 개수에 따라 평균 O(n)의 실행 시간이 소요됩니다. */
 void
 list_insert_ordered (struct list *list, struct list_elem *elem,
 		list_less_func *less, void *aux) {

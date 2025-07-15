@@ -27,6 +27,7 @@ void debug_backtrace (void);
 #undef NOT_REACHED
 
 #ifndef NDEBUG
+// 주어진 CONDITION이 거짓이면 프로그램을 강제로 중단(PANIC)
 #define ASSERT(CONDITION)                                       \
 	if ((CONDITION)) { } else {                             \
 		PANIC ("assertion `%s' failed.", #CONDITION);   \

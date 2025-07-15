@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "palloc.h": "c",
+        "interrupt.h": "c",
+        "timer.h": "c"
+    }
+}

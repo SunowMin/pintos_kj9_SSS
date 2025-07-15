@@ -32,7 +32,7 @@ typedef int tid_t;
  *
  * Each thread structure is stored in its own 4 kB page.  The
  * thread structure itself sits at the very bottom of the page
- * (at offset 0).  The rest of the page is reserved for the
+ * (at offset 0).  The rest(나머지) of the page is reserved for the
  * thread's kernel stack, which grows downward from the top of
  * the page (at offset 4 kB).  Here's an illustration:
  *
@@ -91,6 +91,7 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int64_t wakeup_tick;				/* 깨어날 시간 기록용,timer_ticks()가 int64_t 타입으로 현재 tick을 반환하기 때문에 int64_t으로 선언*/
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -142,5 +143,10 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+void thread_wakeup(int64_t ticks);
+void thread_sleep(int64_t ticks);
+void save_min_ticks(int64_t new_value);
+int64_t get_min_ticks(void);
 
 #endif /* threads/thread.h */
