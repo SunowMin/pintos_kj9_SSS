@@ -24,6 +24,12 @@
    Do not modify this value. */
 #define THREAD_BASIC 0xd42df210
 
+#define CALC_F (1 << 14)
+#define FLOAT(n) ((n) * (CALC_F))
+#define INT(x) ((x) / (CALC_F))
+#define MUL_FLOATS(x, y) (((int64_t)(x)) * (y) / CALC_F)
+#define DIV_FLOATS(x, y) (((int64_t)(x)) * CALC_F / (y))
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running.
    질리도록 언급된 ready_list, ready_queue. 맨 앞 걸 꺼내서 실행하는 식. */
@@ -31,6 +37,9 @@ static struct list ready_list;
 
 /* Alarm clock timer_sleep 구현을 위함. */
 static struct list sleep_list;
+
+/* mlfqs에서만 사용. 모든 쓰레드를 관리. blocked까지. */
+static struct list all_list;
 
 /* Idle thread. */
 struct thread *idle_thread;
@@ -49,6 +58,7 @@ static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
 
+
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -58,6 +68,9 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs".
    그니까 일단은 ROUND ROBIN을 써야 한단 얘기다!!! */
 bool thread_mlfqs;
+
+// [구현 4-0] `load_avg` 전역변수 추가
+static int load_avg = 0;
 
 /* 각 쓰레드의 틱값 중 최솟값 */
 static int64_t min_wakeup_ticks = INT64_MAX;     
@@ -69,7 +82,7 @@ static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
 static void schedule (void);
 static tid_t allocate_tid (void);
-void check_front_yield(void);
+
 
 
 /* Returns true if T appears to point to a valid thread. 보통 ASSERT 용. */
@@ -120,11 +133,20 @@ thread_init (void) {
 	list_init (&sleep_list);
 	list_init (&destruction_req);
 
+	/* 모든 쓰레드를 관리할 리스트: mlfqs에선 필요*/
+	if(thread_mlfqs){
+		list_init(&all_list);
+	}
+
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
+
+	if(thread_mlfqs){
+		list_push_back(&all_list, &(initial_thread -> d_elem));
+	}
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -191,6 +213,7 @@ thread_print_stats (void) {
 tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
+	enum intr_level old_level;
 	struct thread *t;
 	tid_t tid;
 
@@ -218,10 +241,17 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+
+	old_level = intr_disable ();
+	if(thread_mlfqs){
+		list_push_back(&all_list, &(t->d_elem)); 
+	}
+	intr_set_level (old_level);
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
-	// [구현 2-2] 현재 쓰레드보다, 새롭게 추가된 priority가 높은 경우 yield할 것.
+	// [구현 2-2] 현재 쓰레드보다, 새롭게 추가된 쓰레드의 priority가 높은 경우 yield할 것.
 	check_front_yield();
 
 	return tid;
@@ -312,9 +342,14 @@ thread_exit (void) {
 	process_exit ();
 #endif
 
+	
+
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
+	if(thread_mlfqs){
+		list_remove(&(thread_current()->d_elem)); 
+	}
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }
@@ -362,8 +397,7 @@ thread_set_priority (int new_priority) {
 	}
 	
 	// ready list 재정렬
-	list_sort(&ready_list, dsc_priority, NULL);
-
+	//list_sort(&ready_list, dsc_priority, NULL);
 	check_front_yield();
 }
 
@@ -375,31 +409,41 @@ thread_get_priority (void) {
 	return thread_current ()->priority;
 }
 
+// [구현 4-5] 각종 SET/GET 함수.
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) {
-	/* TODO: Your implementation goes here */
+	// [구현 4-5A] 현재 쓰레드의 nice를 재설정.
+	thread_current() -> nice = nice;
+	calc_priority(thread_current());
+	list_sort(&ready_list, dsc_priority, NULL);
+	check_front_yield();
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	// [구현 4-5B] 현재 쓰레드의 nice를 반환.
+	return thread_current() -> nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	// [구현 4-5C] load_avg * 100을 반환
+	// load_avg는 fixed point... 인데 integer로 다시 바꿔야 하나
+	//printf("%d\n", load_avg);
+	// printf("%d - %d\n", load_avg, INT(load_avg * 100));
+	return INT(load_avg * 100);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	// [구현 4-5D] 현재 쓰레드의 recent_cpu * 100을 반환
+	// recent_cpu는 fixed_point, 100은 integer.
+	//printf("%d - %d\n", thread_current() -> recent_cpu, INT(thread_current() -> recent_cpu * 100));
+	return INT(thread_current() -> recent_cpu * 100);
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -775,4 +819,62 @@ void check_front_yield(void){
 	if(!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem) -> priority > (thread_get_priority())){
 		thread_yield();
 	}
+}
+
+// [구현 4-4] priority 계산 위한 각종 함수들
+
+void recent_cpu_up_one(void){
+	// `recent_cpu`를 1 증가시키는 함수. 
+	// recent_cpu는 fixed-point.
+	if(thread_mlfqs){
+		(thread_current() -> recent_cpu) += 1 * (CALC_F);
+	}
+}
+
+void calc_load_avg(void){
+	// `load_avg`를 재계산하는 함수.
+	// load_avg는 fixed point, ready_threads는 integer
+	if(thread_mlfqs){
+		int ready_threads = list_size(&ready_list);
+		if (thread_current() != idle_thread){
+			ready_threads += 1;
+		}
+		//printf("ready_threads %d, load_avg %d\n", ready_threads, load_avg);
+		load_avg = (MUL_FLOATS(DIV_FLOATS(FLOAT(59), FLOAT(60)), load_avg) + DIV_FLOATS(FLOAT(1), FLOAT(60)) * ready_threads);
+		
+	}
+}
+
+void calc_recent_cpu(struct thread *t){
+	if(thread_mlfqs){
+	// load_avg, recent_cpu, decay도 fixed point. nice는 integer.
+	int decay = DIV_FLOATS(2 * load_avg, 2 * load_avg + CALC_F);
+	int result = MUL_FLOATS(decay, t -> recent_cpu) + FLOAT(t -> nice);
+	t -> recent_cpu = result;
+	}
+}
+
+void calc_priority(struct thread *t){
+	if(thread_mlfqs){
+	// priority, nice는 integer. recent_cpu는 fixed point.
+	t -> priority = INT(FLOAT(PRI_MAX) - (t -> recent_cpu / 4) - FLOAT(t -> nice * 2));
+	}
+}
+
+void calc_all_recent_cpu(void){
+	if(thread_mlfqs){
+	for (struct list_elem *node = list_begin(&all_list); node != list_end(&all_list); node = list_next(node)){
+		calc_recent_cpu(list_entry(node, struct thread, d_elem));
+	};
+	}
+}
+
+void calc_all_priority(void){
+	if(thread_mlfqs){
+	calc_priority(thread_current());
+	for (struct list_elem *node = list_begin(&all_list); node != list_end(&all_list); node = list_next(node)){
+		calc_priority(list_entry(node, struct thread, d_elem));
+	};
+}
+
 }

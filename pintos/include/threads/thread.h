@@ -168,5 +168,12 @@ void do_iret (struct intr_frame *tf);
 bool asc_ticks (const struct list_elem *x, const struct list_elem *y, const void *aux);
 bool dsc_priority (const struct list_elem *x, const struct list_elem *y, const void *aux);
 
+void check_front_yield(void);
+void recent_cpu_up_one(void);
+void calc_load_avg(void);
+void calc_recent_cpu(struct thread *t);
+void calc_priority(struct thread *t);
+void calc_all_recent_cpu(void);
+void calc_all_priority(void);
 
 #endif /* threads/thread.h */

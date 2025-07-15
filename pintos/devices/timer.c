@@ -131,7 +131,24 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
+
+
+	// [구현 4-7] timer_interrupt마다 갱신할 멤버들 생신
+	//enum intr_level old_level;
+	//old_level = intr_disable();
+	if(timer_ticks() % 4 == 0){
+		// 모든 쓰레드의priority 재계산
+		calc_all_priority();
+	}
+	recent_cpu_up_one();
+	if(timer_ticks() % TIMER_FREQ == 0){
+		calc_load_avg();
+		calc_all_recent_cpu();
+	}
+	
+
 	thread_tick ();
+	
 
 	// 깨울 쓰레드 찾고, 실제로 깨우기
 	wake_up(ticks);
