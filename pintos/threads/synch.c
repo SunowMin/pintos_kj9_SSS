@@ -318,7 +318,7 @@ lock_held_by_current_thread (const struct lock *lock) {
 struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
-	int priority;						// 정렬 용도 priority.
+	struct thread *thread;				// 정렬 용도 priority.
 };
 
 /* Initializes condition variable COND.  A condition variable
@@ -364,7 +364,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 	sema_init (&waiter.semaphore, 0);
-	waiter.priority = thread_get_priority();
+	waiter.thread = thread_current();
 
     // cond의 waiters 리스트(&cond -> waiters)에 지금 쓰레드 (&waiter.elem)를 넣는다. priority의 역순으로 넣는다.
 	list_insert_ordered (&cond->waiters, &waiter.elem, dsc_sema_priority, NULL);
@@ -411,7 +411,7 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 bool dsc_sema_priority (const struct list_elem *x, const struct list_elem *y, const void *aux){
 	struct semaphore_elem *tx = list_entry(x, struct semaphore_elem, elem);
 	struct semaphore_elem *ty = list_entry(y, struct semaphore_elem, elem);
-	return (tx -> priority) > (ty -> priority);
+	return (tx -> thread -> priority) > (ty -> thread -> priority);
 }
 
 /* priority의 내림차순으로 정렬할 시 사용되는 함수. */
