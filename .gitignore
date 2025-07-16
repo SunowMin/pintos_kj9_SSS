@@ -28,3 +28,6 @@ core
 
 # macOS
 .DS_Store
+
+# pintos 폴더 무시
+pintos/
