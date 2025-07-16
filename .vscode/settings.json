@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.ejs": "html",
+        "*.txt": "plaintext",
+        "interrupt.h": "c",
+        "intr-stubs.h": "c"
+    }
+}
