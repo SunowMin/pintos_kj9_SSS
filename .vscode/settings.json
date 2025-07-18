@@ -3,6 +3,9 @@
         "*.ejs": "html",
         "*.txt": "plaintext",
         "interrupt.h": "c",
-        "intr-stubs.h": "c"
+        "intr-stubs.h": "c",
+        "functional": "c",
+        "type_traits": "c",
+        "process.h": "c"
     }
 }
