@@ -23,7 +23,7 @@
 core
 
 # pwndbg
-pwndbg
+pwndbg/
 
 # 임시 파일
 *~

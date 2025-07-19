@@ -362,10 +362,10 @@ void
 thread_yield (void) {
 	struct thread *curr = thread_current ();
 	// struct thread *next = next_thread_to_run ();	// 놀랍게도 이게 문제였음
-	enum intr_level old_level;
+	
 
 	ASSERT (!intr_context ());
-
+	enum intr_level old_level;
 	old_level = intr_disable ();
 	// if (next -> priority < curr -> priority){
 	// 	intr_set_level (old_level);
@@ -816,14 +816,15 @@ int64_t get_min_ticks(void){
 // 현재 대기 중인 priority 최댓값 thread가
 // 현재 thread의 priority보다 높은 경우 yield함
 void check_front_yield(void){
-
-	// 인터럽트 중엔 yield하지 않음
-	if(intr_context()){
-		return;
-	}
 	if(!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem) -> priority > (thread_get_priority())){
-		thread_yield();
-	}
+		struct thread *curr = thread_current ();
+		enum intr_level old_level;
+		old_level = intr_disable ();
+		if (curr != idle_thread)
+			list_insert_ordered(&ready_list, &curr->elem, dsc_priority, NULL);
+		do_schedule (THREAD_READY);
+		intr_set_level (old_level);
+		}
 }
 
 // [구현 4-4] priority 계산 위한 각종 함수들

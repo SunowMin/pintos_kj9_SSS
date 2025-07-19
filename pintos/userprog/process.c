@@ -43,12 +43,21 @@ process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
 
+	// 버퍼 준비
+	char buffer[128];
+	strlcpy(buffer, file_name, 128);
+
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+
+	char *save_ptr;
+	// [구현 1-2] 현재 file_name은 "echo x y z"
+    //  file_name은 "echo"만 전달해야 함
+	file_name = strtok_r(buffer, " ", &save_ptr);	// 첫 번째 argument만 저장됨
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -178,6 +187,7 @@ process_exec (void *f_name) {
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -201,9 +211,16 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
+
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	
+	 // [구현 1-1] 무한 루프로 땜빵하기
+	while (1){
+
+	}
+
 	return -1;
 }
 
@@ -336,9 +353,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	// [구현 1-4: file_name 맨 앞 argument만 parse해야 함]
+	char *file_token, *dummy_ptr;
+	char bufferA[128];   // 버퍼
+	strlcpy(bufferA, file_name, 128);
+	file_token = strtok_r(bufferA, " ", &dummy_ptr);	// 첫 번째 argument만 저장됨
+
+	file = filesys_open (file_token);
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", file_token);
 		goto done;
 	}
 
@@ -416,6 +439,43 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	// [구현 1-3] 인자 스택에 넣기 (스택주소는 if_->rsp)
+	// 문자열 자체는 정순, 주소는 역순으로 넣는 식으로 구현해보자
+
+	uint64_t argc = 0;		// 인자의 수
+	char bufferB[128];   // 버퍼
+	strlcpy(bufferB, file_name, 128);
+	char* argv[30];	// 스택 내 인자의 주소 저장
+
+	// 1단계. 문자열 정순으로 푸시한다
+	char *token, *save_ptr;
+	for (token = strtok_r(bufferB, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
+		if_->rsp -= strlen(token) + 1;
+		memcpy((void *)if_->rsp, token, strlen(token) + 1);
+		argv[argc] = (char*)if_->rsp;
+		printf("argv[%d]: %s, 주소 %p\n", argc, token, argv[argc]);
+		argc += 1;
+		
+	}
+	printf("argc: %d\n", argc);
+
+	// 2단계. 패딩 바이트를 추가한다 (사실 이미 초기화할때 0이라 스택 포인터만 올리면 됨)
+	int padding = if_->rsp % 8;
+	if_->rsp -= padding;
+
+	// 3단계. 문자열이 저장된 주소를 역순으로 푸시한다
+	for (int i = argc - 1; i >= 0; i--){
+		if_->rsp -= 8;
+		memcpy((void *)if_->rsp, &argv[i], 8);
+	}
+
+	// 4단계. 널 주소를 푸시한다 (사실 이미 초기화할때 0이라 스택 포인터만 올리면 됨)
+	if_->rsp -= 8;
+	memset((void *)if_->rsp, 0, 8);
+
+	// 5단계. 레지스터를 갱신한다
+	if_->R.rdi = argc;
+	if_->R.rsi = if_->rsp + 8;
 
 	success = true;
 
@@ -540,8 +600,16 @@ setup_stack (struct intr_frame *if_) {
 	uint8_t *kpage;
 	bool success = false;
 
-	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+	// 실제 물리 프레임을 OS 물리 메모리 풀에서 할당
+	// 이 물리 프레임에 대응하는 커널 가상 주소를 반환
+	// kpage: 커널 공간에서, 할당된 물리 페이지에 접근할 수 있는 가상주소
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO);	// 사용자 페이지 할당, 모든 바이트는 0으로 초기화. 이때 한 페이지는 4KB.
+	
+
 	if (kpage != NULL) {
+		// 사용자의 가상 주소 공간에 페이지 테이블을 설정
+		// 사용자 가상 주소 (USER_STACK - PGSIZE(4KB))에, 커널이 가진 물리 페이지 (kpage)를 매핑
+		// true: 사용자 process가 페이지에 쓰기 가능
 		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
 		if (success)
 			if_->rsp = USER_STACK;
