@@ -14,7 +14,7 @@
 .section .text
 .func intr_entry
 intr_entry:
-	/* Save caller's registers. */
+	/* Save caller's registers. */ // caller = user pool
 	subq $16,%rsp
 	movw %ds,8(%rsp)
 	movw %es,0(%rsp)

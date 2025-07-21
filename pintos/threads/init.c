@@ -244,6 +244,9 @@ parse_options(char **argv)
 static void
 run_task(char **argv)
 {
+	/* argv[1] 자체가 "파일명 전체"가 저장된 메모리 블록(널 종료된 문자열)의 시작 주소이기 때문에, 그 한 포인터만
+	넘겨줘도 커널 쪽에서는 그 주소부터 연속된 바이트('\0'이 나올 때까지)를 읽어서 전체 문자열을 얻을 수 있다.
+	C에서는 char *s는 문자열의 첫 글자가 들어있는 위치를 가르키는 포인터이고, 해당 포인터로 전체 문자열을 가르킬 수 있다. */
 	const char *task = argv[1];
 
 	printf("Executing '%s':\n", task);

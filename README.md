@@ -1,24 +1,24 @@
-# 📘 Docker기반 Pintos 개발 환경 구축 가이드 
+# 📘 Docker기반 Pintos 개발 환경 구축 가이드
 
 이 문서는 **Windows**와 **macOS** 사용자가 Docker와 VSCode DevContainer 기능을 활용하여 Pintos OS 프로젝트를 빠르게 구축할 수 있도록 도와줍니다.
 
 [**주의**]
 * ubunbu:22.04 버전은 충분한 테스트와 검증이 되지 않았습니다. 이 점을 주의해서 사용하시기 바랍니다.
 
-[**참고**] 
+[**참고**]
 * pintos 도커 환경은 `64비트 기반 X86-64` 기반의 `ubuntu:22.04` 버전을 사용합니다.
    * kaist-pintos는 오리지널 pintos와 달리 64비트 환경을 지원합니다.
    * 이번 도커 환경은 ubuntu 22.04를 지원하여 vscode의 최신 버전에서 원격 연결이 안되는 문제를 해결하였습니다.
-* pintos 도커 환경은 kaist-pintos에서 추천하는 qemu 에뮬레이터를 설치하고 사용합니다. 
+* pintos 도커 환경은 kaist-pintos에서 추천하는 qemu 에뮬레이터를 설치하고 사용합니다.
 * pintos 도커 환경은 9주차부터 13주차까지 같은 환경을 사용합니다. 이 기간동안 별도의 개발 환경을 제공하지 않습니다.
-* 기존 도커 환경과 달리 `vscode`와 통합된 디버깅 환경(F5로 시작하는)을 제공하지 않습니다. 디버깅이 필요한 경우 `gdb`를 사용하세요. 
+* 기존 도커 환경과 달리 `vscode`와 통합된 디버깅 환경(F5로 시작하는)을 제공하지 않습니다. 디버깅이 필요한 경우 `gdb`를 사용하세요.
 * vscode에서 터미널을 오픈하면 자동으로 `source /workspaces/pintos_22.04_lab_docker/pintos/activate`를 실행합니다.
 
 ---
 
 ## 1. Docker란 무엇인가요?
 
-**Docker**는 애플리케이션을 어떤 컴퓨터에서든 **동일한 환경에서 실행**할 수 있게 도와주는 **가상화 플랫폼**입니다.  
+**Docker**는 애플리케이션을 어떤 컴퓨터에서든 **동일한 환경에서 실행**할 수 있게 도와주는 **가상화 플랫폼**입니다.
 
 Docker는 다음 구성요소로 이루어져 있습니다:
 
@@ -48,11 +48,11 @@ Docker는 다음 구성요소로 이루어져 있습니다:
 
 ## 3. Docker Desktop 설치하기
 
-1. Docker 공식 사이트에서 설치 파일 다운로드:  
+1. Docker 공식 사이트에서 설치 파일 다운로드:
    👉 [https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
 
-2. 설치 후 Docker Desktop 실행  
-   - Windows: Docker 아이콘이 트레이에 떠야 함  
+2. 설치 후 Docker Desktop 실행
+   - Windows: Docker 아이콘이 트레이에 떠야 함
    - macOS: 상단 메뉴바에 Docker 아이콘 확인
 
 ---
@@ -100,7 +100,7 @@ pintos_22.04_lab_docker/
 ---
 
 ## 7. C 파일에 브레이크포인트 설정 후 디버깅 (F5)
-pintos 랩에서는 vscode기반의 디버깅을 지원하지 않습니다. 
+pintos 랩에서는 vscode기반의 디버깅을 지원하지 않습니다.
 
 ---
 ## 8. 새로운 Git 리포지토리에 Commit & Push 하기
