@@ -45,6 +45,7 @@ process_create_initd (const char *file_name) {
 
 	// 버퍼 준비
 	char buffer[128];
+	char *file_token;
 	strlcpy(buffer, file_name, 128);
 
 	/* Make a copy of FILE_NAME.
@@ -57,10 +58,10 @@ process_create_initd (const char *file_name) {
 	char *save_ptr;
 	// [구현 1-2] 현재 file_name은 "echo x y z"
     //  file_name은 "echo"만 전달해야 함
-	file_name = strtok_r(buffer, " ", &save_ptr);	// 첫 번째 argument만 저장됨
+	file_token = strtok_r(buffer, " ", &save_ptr);	// 첫 번째 argument만 저장됨
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (file_token, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -187,6 +188,9 @@ process_exec (void *f_name) {
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
+	printf("RDI 주소: %p\n", _if.R.rdi);
+	printf("RSI 주소: %p\n", _if.R.rsi);
+
 	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* If load failed, quit. */
@@ -217,11 +221,13 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       implementing the process_wait. */
 	
 	 // [구현 1-1] 무한 루프로 땜빵하기
-	while (1){
+	 // timer_sleep으로 땜빵할 수도 있구나 
+	timer_sleep (1000);
+	// while (1){
 
-	}
+	// }
 
-	return -1;
+	// return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -458,13 +464,14 @@ load (const char *file_name, struct intr_frame *if_) {
 		
 	}
 	printf("argc: %d\n", argc);
+	argv[argc] = NULL;	// 마지막 널주소
 
 	// 2단계. 패딩 바이트를 추가한다 (사실 이미 초기화할때 0이라 스택 포인터만 올리면 됨)
 	int padding = if_->rsp % 8;
 	if_->rsp -= padding;
 
 	// 3단계. 문자열이 저장된 주소를 역순으로 푸시한다
-	for (int i = argc - 1; i >= 0; i--){
+	for (int i = argc; i >= 0; i--){
 		if_->rsp -= 8;
 		memcpy((void *)if_->rsp, &argv[i], 8);
 	}
@@ -599,6 +606,7 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	uint8_t *kpage;
 	bool success = false;
+
 
 	// 실제 물리 프레임을 OS 물리 메모리 풀에서 할당
 	// 이 물리 프레임에 대응하는 커널 가상 주소를 반환

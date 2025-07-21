@@ -6,6 +6,12 @@
         "intr-stubs.h": "c",
         "functional": "c",
         "type_traits": "c",
-        "process.h": "c"
-    }
+        "process.h": "c",
+        "syscall-nr.h": "c",
+        "loader.h": "c",
+        "intrinsic.h": "c",
+        "syscall.h": "c",
+        "*.inc": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }
