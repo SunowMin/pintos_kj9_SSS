@@ -274,7 +274,6 @@ thread_create (const char *name, int priority,
 	// // 현재 실행 중인 스레드와 새로 삽입된 스레드의 우선순위를 비교
 	// struct thread *curr = running_thread ();
 	// // 현재 실행 중인 스레드보다 새로 들어온 스레드의 우선순위가 더 높으면
-	// if(curr->priority < t->priority){
 	if(thread_current()->priority < t->priority){
 		// 현재 스레드가 CPU를 양보하도록 함
 		thread_yield();
