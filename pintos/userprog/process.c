@@ -188,10 +188,10 @@ process_exec (void *f_name) {
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
-	printf("RDI 주소: %p\n", _if.R.rdi);
-	printf("RSI 주소: %p\n", _if.R.rsi);
+	// printf("RDI 주소: %p\n", _if.R.rdi);
+	// printf("RSI 주소: %p\n", _if.R.rsi);
 
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -459,11 +459,11 @@ load (const char *file_name, struct intr_frame *if_) {
 		if_->rsp -= strlen(token) + 1;
 		memcpy((void *)if_->rsp, token, strlen(token) + 1);
 		argv[argc] = (char*)if_->rsp;
-		printf("argv[%d]: %s, 주소 %p\n", argc, token, argv[argc]);
+		//printf("argv[%d]: %s, 주소 %p\n", argc, token, argv[argc]);
 		argc += 1;
 		
 	}
-	printf("argc: %d\n", argc);
+	//printf("argc: %d\n", argc);
 	argv[argc] = NULL;	// 마지막 널주소
 
 	// 2단계. 패딩 바이트를 추가한다 (사실 이미 초기화할때 0이라 스택 포인터만 올리면 됨)
