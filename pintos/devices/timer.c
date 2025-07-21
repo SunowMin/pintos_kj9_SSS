@@ -20,7 +20,6 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
-                 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -29,7 +28,6 @@ static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
-
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
@@ -72,7 +70,9 @@ timer_calibrate (void) {
 	printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
 }
 
-/* Returns the number of timer ticks since the OS booted. */
+/* Returns the number of timer ticks since the OS booted.
+	OS가 부팅된 이후 경과한 타이머 틱 수를 반환
+*/
 int64_t
 timer_ticks (void) {
 	enum intr_level old_level = intr_disable ();
@@ -81,24 +81,38 @@ timer_ticks (void) {
 	barrier ();
 	return t;
 }
-
 /* Returns the number of timer ticks elapsed since THEN, which
-   should be a value once returned by timer_ticks(). */
+   should be a value once returned by timer_ticks(). 
+   THEN 이후 경과된 타이머 틱 수를 반환, 
+   이 값은 timer_ticks에서 반환된 값이어야 함
+*/
 int64_t
 timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
-/* Suspends execution for approximately TICKS timer ticks. */
-
+/* Suspends execution for approximately TICKS timer ticks. 
+	약 TICKS틱 동안 실행을 일시 중지
+	인터럽트가 비활성화 상태면 중단하고, 
+	경과한 타이머 틱 수가 지정한 ticks에 도달할 때까지 thread_yield()반복 실행
+*/
 void
 timer_sleep (int64_t ticks) {
+	// OS가 부팅된 이후 경과한 타이머 틱 수를 start변수에 저장
 	int64_t start = timer_ticks ();
 
+	// ASSERT:주어진 CONDITION이 거짓이면 프로그램을 강제로 중단(PANIC)
+	// 인터럽트 활성화 상태가 아니면 중단
 	ASSERT (intr_get_level () == INTR_ON);
+	// 루프 돌면서 계속 thread_yield() 실행 -> busy_waiting 방식
+	// 개선목표 : 이걸 x tick만큼 block상태로 재워두었다가, 시간이 되면 ready 큐에 넣도록 수정해야 함
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();
 
-	// 깨울 때까지 시간이 남은 경우, thread_sleep 호출
-	if (timer_elapsed(start) < ticks){
+	// busy_waiting을 ready_list에 추가하는 방식으로 수정
+	if(timer_elapsed (start) < ticks){
+		// 스레드를 sleep 큐에 삽입하는 함수를 호출
+		// 지금(start)부터 ticks만큼 더 흐른 시점을 깨울 시점으로 기록
 		thread_sleep(start + ticks);
 	}
 }
@@ -126,34 +140,16 @@ void
 timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
-/* [구현] Timer interrupt handler. */
+ 
+/* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-
-
-	// [구현 4-6] timer_interrupt마다 갱신할 멤버들 생신
-	//enum intr_level old_level;
-	//old_level = intr_disable();
-	if(timer_ticks() % 4 == 0){
-		// 모든 쓰레드의priority 재계산
-		calc_all_priority();
-	}
-	recent_cpu_up_one();
-	if(timer_ticks() % TIMER_FREQ == 0){
-		calc_load_avg();
-		calc_all_recent_cpu();
-	}
-	
-
 	thread_tick ();
-	
 
-	// 깨울 쓰레드 찾고, 실제로 깨우기
-	wake_up(ticks);
+	// 깨울 스레드 있는지 확인해서 깨우기
+	thread_wakeup(ticks);
 }
-
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */

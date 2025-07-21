@@ -110,7 +110,9 @@ static void pic_end_of_interrupt (int irq);
 /* Interrupt handlers. */
 void intr_handler (struct intr_frame *args);
 
-/* Returns the current interrupt status. */
+/* Returns the current interrupt status. 
+	현재 인터럽트 상태를 반환
+*/
 enum intr_level
 intr_get_level (void) {
 	uint64_t flags;
@@ -146,14 +148,17 @@ intr_enable (void) {
 	return old_level;
 }
 
-/* Disables interrupts and returns the previous interrupt status. */
+/* Disables interrupts and returns the previous interrupt status. 
+	인터럽트를 비활성화하고 이전 인터럽트 상태를 반환*/
 enum intr_level
 intr_disable (void) {
+	// 지금 인터럽트가 on/off인지 상태 저장
 	enum intr_level old_level = intr_get_level ();
 
 	/* Disable interrupts by clearing the interrupt flag.
 	   See [IA32-v2b] "CLI" and [IA32-v3a] 5.8.1 "Masking Maskable
-	   Hardware Interrupts". */
+	   Hardware Interrupts".
+	   실제 인터럽트를 끄는 어셈블리 명령 */
 	asm volatile ("cli" : : : "memory");
 
 	return old_level;
@@ -253,7 +258,11 @@ intr_register_int (uint8_t vec_no, int dpl, enum intr_level level,
 }
 
 /* Returns true during processing of an external interrupt
-   and false at all other times. */
+   and false at all other times. 
+   외부 인터럽트 처리 중에는 true를 반환하고,
+   다른 경우에는 false를 반환 
+   => 지금 커널이 외부 인터럽트 처리 루틴 안에서 돌아가고 있는지?
+   (timer_interrupt가 실행 중이면 true 반환)*/
 bool
 intr_context (void) {
 	return in_external_intr;

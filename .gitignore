@@ -22,9 +22,6 @@
 # core dump
 core
 
-# pwndbg
-pwndbg
-
 # 임시 파일
 *~
 *.swp

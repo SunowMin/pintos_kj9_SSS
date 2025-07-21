@@ -32,7 +32,7 @@ typedef int tid_t;
  *
  * Each thread structure is stored in its own 4 kB page.  The
  * thread structure itself sits at the very bottom of the page
- * (at offset 0).  The rest of the page is reserved for the
+ * (at offset 0).  The rest(나머지) of the page is reserved for the
  * thread's kernel stack, which grows downward from the top of
  * the page (at offset 4 kB).  Here's an illustration:
  *
@@ -91,6 +91,7 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int64_t wakeup_tick;				/* 깨어날 시간 기록용,timer_ticks()가 int64_t 타입으로 현재 tick을 반환하기 때문에 int64_t으로 선언*/
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -106,18 +107,6 @@ struct thread {
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
-	int64_t wakeup_tick;                    /* sleep 중일 때, 깨어날 시간. */
-
-	// [구현 3-1] struct thread 구조체에 priority donation 멤버 추가.
-	int saved_priority;					// priority donation이 이루어진 경우, donation 이전 priority.
-	struct lock *wait_on_lock;			// 현재 쓰레드가 대기 중인 lock
-	struct list donations;				// 현재 쓰레드에 priority를 기부할 수 있는 쓰레드의 리스트.
-	struct list_elem d_elem;			// donations 리스트에 집어넣기 위한 용도
-
-	// [구현 4-1] struct thread 구조체에 mlfqs 멤버 추가
-	int nice;
-	int recent_cpu; 
-
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
@@ -125,9 +114,6 @@ struct thread {
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
-
-extern struct thread *idle_thread;
 
 void thread_init (void);
 void thread_start (void);
@@ -156,24 +142,11 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-void do_schedule(int status);
-
-void thread_sleep(int64_t);
-void wake_up(int64_t);
-void save_min_ticks(int64_t);
-int64_t get_min_ticks(void);
-
 void do_iret (struct intr_frame *tf);
 
-bool asc_ticks (const struct list_elem *x, const struct list_elem *y, const void *aux);
-bool dsc_priority (const struct list_elem *x, const struct list_elem *y, const void *aux);
-
-void check_front_yield(void);
-void recent_cpu_up_one(void);
-void calc_load_avg(void);
-void calc_recent_cpu(struct thread *t);
-void calc_priority(struct thread *t);
-void calc_all_recent_cpu(void);
-void calc_all_priority(void);
+void thread_wakeup(int64_t ticks);
+void thread_sleep(int64_t ticks);
+void save_min_ticks(int64_t new_value);
+int64_t get_min_ticks(void);
 
 #endif /* threads/thread.h */
