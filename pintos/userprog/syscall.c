@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -9,6 +10,9 @@
 #include "threads/init.h"
 #include "threads/mmu.h"
 #include "intrinsic.h"
+#include "userprog/process.h"
+#include "threads/palloc.h"
+
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -43,25 +47,18 @@ syscall_init (void) {
 
 // [구현 2-2] 포인터가 valid한지 확인하는 함수를 만든다.
 bool valid_pointer (void *p){
-	// printf("주소: %p\n", p);
-	// printf("커널영역여부: %d\n", is_kernel_vaddr(p));
-	// printf("매핑되지 않은페이지 여부: %p\n". pml4_get_page(thread_current() -> pml4, p));
-
-	// 널 주소 -> false;
-	if (p == NULL) exit(-1);
-
-	// 커널 영역의 주소 -> false
-	if (is_kernel_vaddr(p)) exit(-1);
-
-	// 매핑되지 않은 페이지 -> false
-	if (pml4_get_page(thread_current() -> pml4, p) == NULL) exit(-1);
+	// 널 주소-/ 커널 영역의 주소 / 매핑되지 않은 페이지
+	if (p == NULL || is_kernel_vaddr(p) || pml4_get_page(thread_current() -> pml4, p) == NULL){
+		thread_current() -> exit_code = -1;
+		thread_exit();
+	};
 }
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
 	// [구현 2-1] 시스템 콜 번호에 따라, 올바른 함수가 실행되도록 구현한다.
-	// 인가는 rdi rsi rdx 
+	// 인자는 rdi rsi rdx ....
 	int number = f -> R.rax;
 
 	switch(number){
@@ -70,26 +67,47 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			// [구현 3] 핀토스를 종료. 매우 쉽죠?
 		  	power_off();
 			break;
-		case SYS_EXIT:					
-			/* Terminate this process. */
-			// [구현 4] 쓰레드/프로세스 종료
-			exit((int)(f -> R.rdi));
-			break;
 		case SYS_WRITE:
 			/* Write to a file. */
-			// [구현 5] 콘솔 창에다 출력하는 부분만 일단 우선 구현 가능.
+			// [구현 4-1] 콘솔 창에다 출력하는 부분만 일단 우선 구현 가능.
 			valid_pointer(f -> R.rsi);
 
 			if ((int)(f -> R.rdi) == 1){
 				putbuf((char *)(f -> R.rsi), (size_t)(f -> R.rdx));
 			}
 			break;
+		case SYS_EXIT:					
+			/* Terminate this process. */
+			// [구현 5-1] thread 내 exit_code 멤버에 status 저장
+			thread_current() -> exit_code = (int)(f -> R.rdi);
+			thread_exit();
+			break;
+		case SYS_EXEC:
+			/* Switch current process. */
+			// [구현 6] 새로운 프로세스 실행
+			// 성공할 시 return하지 않음에 유의
+			valid_pointer(f -> R.rdi);
+			char *f_name = palloc_get_page(0);
+			strlcpy(f_name, f->R.rdi, PGSIZE);
+			f -> R.rax = process_exec(f_name);
+			thread_current() -> exit_code = -1;
+			thread_exit();
+			break;
+		case SYS_FORK:
+			/* Clone current process. */
+			// [구현 7] 현재 프로세스 fork
+			valid_pointer(f -> R.rdi);
+			f -> R.rax = process_fork((char *)(f -> R.rdi), f);
+			break;
+		
+		case SYS_WAIT:
+			/* Wait for a child process to die. */
+			// [구현 6] 자식 프로세스를 기다린다.
+			f -> R.rax = process_wait(f -> R.rdi);
+			break;
 
 		
-		// case SYS_FORK:					
-		//     /* Clone current process. */
-		// case SYS_EXEC:                   /* Switch current process. */
-		// case SYS_WAIT:                   /* Wait for a child process to die. */
+		
 		// case SYS_CREATE:              /* Create a file. */
 		// case SYS_REMOVE:                 /* Delete a file. */
 		// case SYS_OPEN:                   /* Open a file. */
@@ -102,11 +120,4 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 	//printf ("system call!\n");
 	// thread_exit ();
-}
-
-void exit(int status){
-	// [구현 2-3] 사용자프로세스 종료
-	struct thread *cur = thread_current();
-	printf("%s: exit(%d)\n", cur->name, status);
-	thread_exit();
 }

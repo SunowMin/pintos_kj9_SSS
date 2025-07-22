@@ -10,6 +10,7 @@ void
 test_main (void) 
 {
   pid_t pid = fork (copy_string_across_boundary ("child-simple"));
+
   if (pid == 0){
     msg ("child run");
     exit(54);

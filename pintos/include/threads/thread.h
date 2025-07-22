@@ -98,6 +98,13 @@ struct thread {
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	bool waiting;						
+	int exit_code;						/* exit 시스템 콜 시 반환할 코드. */
+	struct list children;				/* 자식 프로세스의 리스트 */
+	struct list_elem c_elem;			/* children 리스트에 집어넣기 위한 용도 */
+	struct thread *parent;				/* 부모 프로세스 */
+	struct semaphore *f_sema;			/* fork 시스템 콜 용도 */
+	struct semaphore *w_sema;			/* wait 시스템 콜 용도 */
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
