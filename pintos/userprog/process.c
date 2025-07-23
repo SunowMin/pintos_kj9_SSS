@@ -43,6 +43,7 @@ tid_t process_create_initd(const char *file_name)
 {
 	char *fn_copy;
 	tid_t tid;
+	char *test;
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -172,6 +173,8 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
+/*
+ */
 int process_exec(void *f_name) // f_name은 arguments. 파일명 - 인자1 - 인자2
 {
 	char *file_name = f_name; // 문자열 배열의 시작 주소(포인터)
@@ -192,7 +195,7 @@ int process_exec(void *f_name) // f_name은 arguments. 파일명 - 인자1 - 인
 	/* And then load the binary */
 	success = load(file_name, &_if);
 
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* file_name, &if_.eip, &if_.esp */
 
@@ -239,7 +242,13 @@ void process_exit(void)
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-
+	/* user process인 경우에만 출력이 되어야 한다. 커널에서 작성한 경우는 출력이 x 조건문으로 현재 테이블의
+	커널에서 만든거면 null, pml4는 사용자 프로세스인 경우에만 를 만든다.
+	*/
+	if (curr->pml4 != NULL)
+	{
+		printf("%s: exit(%d)\n", curr->name, curr->exit_arg);
+	}
 	process_cleanup();
 }
 
@@ -345,8 +354,8 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
 												 bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
- * Stores the executable's entry point into *RIP > Instruction Pointer
- * and its initial stack pointer into *RSP. > Stack Pointer
+ * Stores the executable's entry point into *RIP
+ * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
 static bool
 load(const char *file_name, struct intr_frame *if_)
@@ -486,20 +495,23 @@ void argument_stack(char **arg_list, int idx, struct intr_frame *if_)
 		/* word-align */
 		if (i == 0)
 		{
-			int align = 8 - (cnt % 8);
-			for (int k = 0; k < align; k++)
-			{
-				if_->rsp = if_->rsp - 1;
-				memset(if_->rsp, 0, sizeof(char));
-			}
+			int align = 8 - (cnt % 8);	 // 8의 배수이면 0을 더하게 된다.
+			if_->rsp = if_->rsp - align; // 이게 어떻게 패딩이 되는거지? -> 스택은 아래로 내려갈수록 쌓이는 형태이니까 8의 나머지를 빼준다.
 
+			// for (int k = 0; k < align; k++)
+			// {
+			// 	if_->rsp = if_->rsp - 1;
+			// 	memset(if_->rsp, 0, sizeof(char));
+			// }
+
+			// argv 포인터 배열(push argv pointers)
 			for (i = idx; i > -1; i--)
 			{
-				if_->rsp = if_->rsp - 8;
+				if_->rsp = if_->rsp - 8; // 포인터 하나(8바이트) 공간 확보
 
 				if (i == idx)
 				{
-					memset(if_->rsp, 0, sizeof(char *));
+					memset(if_->rsp, 0, sizeof(char *)); // 마지막에 NULL 포인터로 끝을 표시한다.
 				}
 				else
 				{
@@ -507,10 +519,11 @@ void argument_stack(char **arg_list, int idx, struct intr_frame *if_)
 					memcpy(if_->rsp, &start_addr, sizeof(start_addr));
 				}
 			}
+			// 가짜 주소 리턴(fake return address)
 			if_->rsp = if_->rsp - 8;
-			memset(if_->rsp, 0, sizeof(void *));
-			if_->R.rdi = idx;
-			if_->R.rsi = if_->rsp + 8;
+			memset(if_->rsp, 0, sizeof(void *)); // return address = 0
+			if_->R.rdi = idx;										 // 첫번째 인자 : argc
+			if_->R.rsi = if_->rsp + 8;					 // 두번째 인자 : &argv[0]
 		}
 	}
 }

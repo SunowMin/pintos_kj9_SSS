@@ -99,6 +99,8 @@ struct thread
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */
+	/* exit 매개변수 추가 */
+	int exit_arg;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
