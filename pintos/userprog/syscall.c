@@ -16,7 +16,7 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-bool valid_pointer(void *p);
+void valid_pointer(void *p);
 void exit(int status);
 
 /* System call.
@@ -46,12 +46,12 @@ syscall_init (void) {
 }
 
 // [구현 2-2] 포인터가 valid한지 확인하는 함수를 만든다.
-bool valid_pointer (void *p){
+void valid_pointer (void *p){
 	// 널 주소-/ 커널 영역의 주소 / 매핑되지 않은 페이지
 	if (p == NULL || is_kernel_vaddr(p) || pml4_get_page(thread_current() -> pml4, p) == NULL){
 		thread_current() -> exit_code = -1;
 		thread_exit();
-	};
+	}
 }
 
 /* The main system call interface */
@@ -95,7 +95,7 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_FORK:
 			/* Clone current process. */
-			// [구현 7] 현재 프로세스 fork
+			// [구현 7-7] 자식 프로세스 생성 및 복제
 			valid_pointer(f -> R.rdi);
 			f -> R.rax = process_fork((char *)(f -> R.rdi), f);
 			break;

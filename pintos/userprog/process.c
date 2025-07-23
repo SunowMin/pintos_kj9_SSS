@@ -36,6 +36,7 @@ struct fork_aux {
 	struct intr_frame *parent_if;
 };
 
+// [구현 7-2] 부모의 인터럽트 프레임 전달 위한 구조체 선언
 struct init_aux {
 	struct thread *parent;
 	char *fn_copy;
@@ -45,13 +46,11 @@ struct init_aux {
 void
 process_init (void) {
 	struct thread *current = thread_current ();
-	current -> f_sema = malloc(sizeof(struct semaphore));
-	current -> w_sema = malloc(sizeof(struct semaphore));
 	current -> waiting = false;
 	list_init(&(current -> children));
-	// 쓰레드 구조체의 세마포어 초기화
-	sema_init(current -> f_sema, 0);
-	sema_init(current -> w_sema, 0);
+	// [구현 7-1] 쓰레드 구조체의 세마포어 초기화
+	sema_init(&(current -> f_sema), 0); //
+	sema_init(&(current -> w_sema), 0);
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -98,7 +97,7 @@ process_create_initd (const char *file_name) {
 		palloc_free_page(ia -> fn_copy);
 		free(ia);
 	}
-	sema_down(thread_current() -> f_sema);
+	sema_down(&(thread_current() -> f_sema));
 	return tid;
 }
 
@@ -117,7 +116,7 @@ initd (void *aux_){
 	
 	curr -> parent = parent;
 	list_push_back(&(parent -> children), &(curr -> c_elem));
-	sema_up(parent -> f_sema);
+	sema_up(&(parent -> f_sema));
 	
 	
 	
@@ -131,14 +130,17 @@ initd (void *aux_){
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
-	// [구현 4-1A] 부모의 인터럽트 프레임 전달하기.
+	// [구현 7-2] 자식에게 부모의 인터럽트 프레임 전달하기.
 	struct fork_aux *fa = malloc(sizeof(struct fork_aux));
 	fa -> parent = thread_current();
 	fa -> parent_if = if_; 
 
-	tid_t result = thread_create(name, PRI_DEFAULT, __do_fork, fa);
-	sema_down(thread_current()->f_sema);
 	/* Clone current thread to new thread.*/
+	tid_t result = thread_create(name, PRI_DEFAULT, __do_fork, fa);
+
+	// [구현 7-3] 부모 세마포어 내리기
+	sema_down(&(thread_current()->f_sema));
+	
 	return result;
 }
 
@@ -156,13 +158,17 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	void *new_page;
 	bool writable;
 
+	// [구현 7-4] 부모의 페이지 테이블 복사를 위한, duplicate_pte 함수 완성하기
+
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	/* 1. 부모 페이지가 커널에 위치한 경우 즉시 반환한다. */
 	
 	if (is_kern_pte(pte)){
 		return true;
 	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
+	/* 2. 부모의 pml4 테이블에 부모 페이지의 주소를 parent_page에 저장한다. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
@@ -198,13 +204,12 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 
 static void
 __do_fork (void *aux) {
-	// [구현 4-1B] 부모의 인터럽트 프레임 전달하기.
+	// [구현 7-2] 부모로부터 인터럽트 프레임 전달받기
 	struct intr_frame if_;
-	// struct thread *parent = (struct thread *) aux;
 	struct thread *parent = ((struct fork_aux *)(aux)) -> parent;
 	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
 	struct intr_frame *parent_if = ((struct fork_aux *)(aux)) -> parent_if;
+	free(aux);
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -225,7 +230,7 @@ __do_fork (void *aux) {
 		goto error;
 #endif
 
-	// 자식 프로세스는 0을 반환
+	// [구현 7-5] 자식프로세스 반환값 0으로 설정
 	if_.R.rax = 0;
 
 	/* TODO: Your code goes here.
@@ -242,15 +247,15 @@ __do_fork (void *aux) {
 	
 	
 	/* Finally, switch to the newly created process. */
-	if (succ)
+	if (succ){
 		list_push_back(&(parent -> children), &(current -> c_elem));
 		current -> parent = parent;
-		free(aux);
-		sema_up(parent -> f_sema);
+		sema_up(&(parent -> f_sema));
 		do_iret (&if_);
+	}
 error:
-	free(aux);
-    sema_up(parent -> f_sema);
+	
+    sema_up(&(parent -> f_sema));
 	thread_exit ();
 }
 
@@ -268,11 +273,9 @@ process_exec (void *f_name) {
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
-
 	
 	/* We first kill the current context */
 	process_cleanup ();
-
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
@@ -280,7 +283,6 @@ process_exec (void *f_name) {
 	// printf("RSI 주소: %p\n", _if.R.rsi);
 
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
@@ -336,28 +338,20 @@ process_wait (tid_t child_tid UNUSED) {
 		return -1;
 	}
 
-	// [구현 6-2] 세마포어를 내리기.
+	// [구현 8-4] 세마포어를 내리기.
 	// if (child -> w_sema -> value == 0){
 		curr -> waiting = true;
 	//printf("%d: 여기까지 왔나?\n", curr -> tid);
 	//printf("%d의 자식 %d 세마포어 f %d w %d\n", curr -> tid, child -> tid, child -> f_sema -> value, child -> w_sema -> value);
-	sema_down(child -> w_sema);
+	sema_down(&(child -> w_sema));
 	//printf("%d: 여기까지 왔다!\n", curr -> tid);
 	// } 
 	
 	
 	// [구현 6-3] 다시 올라오면, 자식의 exit 코드 저장하고, 자식을 리스트에서 없애고, exit 코드 반환.
 	wait_return = child -> exit_code;
+	//printf("자식 %d의 exit 코드: %d", child->tid, child->exit_code);
 	list_remove(&(child -> c_elem));
-
-	if (child -> f_sema != NULL){
-		free(child -> f_sema);
-		//printf("f_sema free 성공\n");
-	}
-	if (child -> w_sema != NULL){
-		free(child -> w_sema);
-		//printf("w_sema free 성공\n");
-	}
 
 	return wait_return;
 
@@ -382,12 +376,13 @@ process_exit (void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	// [구현 5-2] exit 및 exit 메시지 띄우기 구현
 	struct thread *curr = thread_current ();
-
+	bool user_process = curr -> pml4 != NULL;
 	// 세마포어를 올려 줌
 	//printf("%d: 부모 %d를 위한 세마포어를 올려랏\n", curr -> tid, curr -> parent -> tid);
-	if (curr -> w_sema != NULL){
-		sema_up(curr -> w_sema);
-	}
+
+	
+	
+
 	
 
 
@@ -396,15 +391,23 @@ process_exit (void) {
 		//printf("waiting 설정 해제도 성공\n");
 	}
 
-	
+	// 이거 어떻게 예외 처리 해야하지?
+	// if(curr -> pml4 != NULL){
+	// 	sema_up(&(curr -> w_sema));
+	// }
 	
 	// 사용자 프로세스가 exit하지 않는 경우, exit 메시지를 띄우면 안 됨
 	// 커널 프로세스엔 pml4 테이블이 할당되지 않음
-	if (curr -> pml4 != NULL){
+	if (user_process){
 		printf("%s: exit(%d)\n", curr -> name, curr -> exit_code);
 	}
 
 	process_cleanup ();
+
+	if(user_process){
+		sema_up(&(curr -> w_sema));
+	}
+	
 }
 
 /* Free the current process's resources. */
@@ -421,6 +424,7 @@ process_cleanup (void) {
 	 * to the kernel-only page directory. */
 	pml4 = curr->pml4;
 	if (pml4 != NULL) {
+		
 		/* Correct ordering here is crucial.  We must set
 		 * cur->pagedir to NULL before switching page directories,
 		 * so that a timer interrupt can't switch back to the
@@ -431,6 +435,7 @@ process_cleanup (void) {
 		curr->pml4 = NULL;
 		pml4_activate (NULL);
 		pml4_destroy (pml4);
+		
 	}
 
 	
