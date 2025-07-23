@@ -82,8 +82,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		fn_cp = palloc_get_page(0); // process_exec에서 palloc으로 해제하기 떄문에
 		strlcpy(fn_cp, f->R.rdi, PGSIZE);
 		f->R.rax = process_exec(fn_cp); // 반환값은 rax 레지스터에 저장
-		// palloc_free_page(fn_cp);
-		thread_exit();
+		palloc_free_page(fn_cp);
 		break;
 
 	default:
