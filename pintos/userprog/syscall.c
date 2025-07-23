@@ -102,7 +102,7 @@ syscall_handler (struct intr_frame *f) {
 		
 		case SYS_WAIT:
 			/* Wait for a child process to die. */
-			// [구현 6] 자식 프로세스를 기다린다.
+			// [구현 8-7] 자식 프로세스를 기다린다.
 			f -> R.rax = process_wait(f -> R.rdi);
 			break;
 

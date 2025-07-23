@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -85,6 +86,17 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+
+struct child_info {
+	tid_t tid;				// 쓰레드 번호
+	struct list_elem c_elem;	// 리스트 삽입용
+	int exit_code;			// 삭제코드 저장
+	struct semaphore w_sema;	
+	bool alive;				// 생존 여부
+	bool parent_alive;		// 부모의 생존 여부
+	bool waiting;			// 부모가 해당 프로세스를 대기 중인지
+};
+
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -97,14 +109,16 @@ struct thread {
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
+	/* Project 2에서 추가한 코드 좀 많음. */
 	uint64_t *pml4;                     /* Page map level 4 */
-	bool waiting;						
+	// bool waiting;						/* 자식을 대기 중인지 여부 */			
 	int exit_code;						/* exit 시스템 콜 시 반환할 코드. */
 	struct list children;				/* 자식 프로세스의 리스트 */
-	struct list_elem c_elem;			/* children 리스트에 집어넣기 위한 용도 */
-	struct thread *parent;				/* 부모 프로세스 */
-	struct semaphore *f_sema;			/* fork 시스템 콜 용도 */
-	struct semaphore *w_sema;			/* wait 시스템 콜 용도 */
+	struct child_info *ci;
+	// struct list_elem c_elem;			/* children 리스트에 집어넣기 위한 용도 */
+	// struct thread *parent;				/* 부모 프로세스 */
+	struct semaphore f_sema;			/* fork 시스템 콜 용도 */
+	// struct semaphore w_sema;			/* wait 시스템 콜 용도 */
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

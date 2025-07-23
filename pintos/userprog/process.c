@@ -46,11 +46,17 @@ struct init_aux {
 void
 process_init (void) {
 	struct thread *current = thread_current ();
-	current -> waiting = false;
 	list_init(&(current -> children));
 	// [구현 7-1] 쓰레드 구조체의 세마포어 초기화
-	sema_init(&(current -> f_sema), 0); //
-	sema_init(&(current -> w_sema), 0);
+	sema_init(&(current -> f_sema), 0);
+	// [구현 8-1] child_info 초기화
+	struct child_info *ci = palloc_get_page(PAL_ZERO);
+	ci -> parent_alive = true;
+	sema_init(&(ci -> w_sema), 0);
+	ci -> tid = current -> tid;
+	ci -> alive = true;
+	ci -> waiting = false;
+	current -> ci = ci;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -68,6 +74,7 @@ process_create_initd (const char *file_name) {
 	char *file_token;
 	strlcpy(buffer, file_name, 128);
 
+	// [구현 8-8] 첫 프로세스에 부모의 struct thread 전달하기
 	struct init_aux *ia = malloc(sizeof(struct init_aux));
 	ia -> fn_copy = palloc_get_page(0);
 	if (ia -> fn_copy == NULL){
@@ -96,7 +103,10 @@ process_create_initd (const char *file_name) {
 		// palloc_free_page (fn_copy);
 		palloc_free_page(ia -> fn_copy);
 		free(ia);
+		return tid;
 	}
+
+	// 첫 사용자 프로그램이 자식으로 설정될 때까지 세마포어로 대기.
 	sema_down(&(thread_current() -> f_sema));
 	return tid;
 }
@@ -114,11 +124,9 @@ initd (void *aux_){
 	struct thread *curr = thread_current();
 	free(aux_);
 	
-	curr -> parent = parent;
-	list_push_back(&(parent -> children), &(curr -> c_elem));
-	sema_up(&(parent -> f_sema));
-	
-	
+	// [구현 8-9] 첫 프로세스도 부모자식 관계를 설정해야 함.
+	list_push_back(&(parent -> children), &(curr -> ci -> c_elem));
+	sema_up(&(parent -> f_sema)); // 설정 완료 후 부모의 대기 해제
 	
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -248,8 +256,10 @@ __do_fork (void *aux) {
 	
 	/* Finally, switch to the newly created process. */
 	if (succ){
-		list_push_back(&(parent -> children), &(current -> c_elem));
-		current -> parent = parent;
+		// [구현 8-2] fork 이후 부모/자식 관계 설정
+		list_push_back(&(parent -> children), &(current -> ci -> c_elem));				// 부모의 children 리스트에 자식 삽입
+
+		// [구현 7-6] 자식프로세스 처리 종료 후 세마포어 올리기
 		sema_up(&(parent -> f_sema));
 		do_iret (&if_);
 	}
@@ -307,16 +317,11 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	//[구현 6-1] 리스트에서 child_tid를 가진 자식을 찾기
+	//[구현 8-3] children 리스트에서 child_tid를 가진 자식을 찾기
 	//printf("tid %d 찾는 중\n", child_tid);
 	struct thread *curr = thread_current();
-	
-	// 이미 자식을 waiting 중인 경우 바로 -1 반환
-	if (curr -> waiting == true){
-		return -1;
-	}
 
-	struct thread *child;
+	struct child_info *child;
 	struct list_elem *e;
 	int flag = 0;
 	int wait_return;
@@ -324,7 +329,7 @@ process_wait (tid_t child_tid UNUSED) {
 
 	if (!list_empty(&(curr->children))){
 		for (e = list_begin(&(curr -> children)); e != list_end(&(curr -> children)); e = list_next(e)){
-			child = list_entry(e, struct thread, c_elem);
+			child = list_entry(e, struct child_info, c_elem);
 			//printf("찾는 %d, 실제 %d\n", child_tid, child -> tid);
 			if (child -> tid == child_tid){
 				flag = 1;
@@ -333,25 +338,33 @@ process_wait (tid_t child_tid UNUSED) {
 		}
 	}
 
-	if (flag == 0){
+	if (flag == 0 || child -> waiting){
 		// 찾지 못한 경우 / 리스트가 빈 경우 -1 반환
+		// 동일 child를 대기하는 경우도 -1 반환
 		return -1;
 	}
 
-	// [구현 8-4] 세마포어를 내리기.
-	// if (child -> w_sema -> value == 0){
-		curr -> waiting = true;
-	//printf("%d: 여기까지 왔나?\n", curr -> tid);
-	//printf("%d의 자식 %d 세마포어 f %d w %d\n", curr -> tid, child -> tid, child -> f_sema -> value, child -> w_sema -> value);
-	sema_down(&(child -> w_sema));
-	//printf("%d: 여기까지 왔다!\n", curr -> tid);
-	// } 
-	
-	
-	// [구현 6-3] 다시 올라오면, 자식의 exit 코드 저장하고, 자식을 리스트에서 없애고, exit 코드 반환.
+
+	// [구현 8-4] 자식의 종료 전까지 대기 
+	// 이미 자식이 죽은 경우, 바로 exit code를 얻기
+	if (child -> alive){
+		// waiting을 true로 설정하고, 세마포어를 내리기.
+		// if (child -> w_sema -> value == 0){
+		child -> waiting = true;
+		//printf("%d: 여기까지 왔나?\n", curr -> tid);
+		//printf("%d의 자식 %d 세마포어 f %d w %d\n", curr -> tid, child -> tid, child -> f_sema -> value, child -> w_sema -> value);
+		sema_down(&(child -> w_sema));
+		//printf("%d: 여기까지 왔다!\n", curr -> tid);
+		// } 
+		child -> waiting = false;
+	}
+
+	// [구현 8-5] 자식이 종료되면...
+	// 자식을 리스트에서 없애고, free하고, 자식의 exit 코드 반환.
 	wait_return = child -> exit_code;
 	//printf("자식 %d의 exit 코드: %d", child->tid, child->exit_code);
 	list_remove(&(child -> c_elem));
+	palloc_free_page(child);
 
 	return wait_return;
 
@@ -376,20 +389,16 @@ process_exit (void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	// [구현 5-2] exit 및 exit 메시지 띄우기 구현
 	struct thread *curr = thread_current ();
+
+	// 사용자 프로세스만 pml4 테이블을 가짐
 	bool user_process = curr -> pml4 != NULL;
 	// 세마포어를 올려 줌
 	//printf("%d: 부모 %d를 위한 세마포어를 올려랏\n", curr -> tid, curr -> parent -> tid);
 
-	
-	
-
-	
-
-
-	if (curr -> parent && curr -> parent -> waiting){
-		curr -> parent -> waiting = false;
-		//printf("waiting 설정 해제도 성공\n");
-	}
+	// if (curr -> parent && curr -> parent -> waiting){
+	// 	curr -> parent -> waiting = false;
+	// 	//printf("waiting 설정 해제도 성공\n");
+	// }
 
 	// 이거 어떻게 예외 처리 해야하지?
 	// if(curr -> pml4 != NULL){
@@ -403,9 +412,30 @@ process_exit (void) {
 	}
 
 	process_cleanup ();
-
+	
+	// [구현 8-6] 세마포아를 올려 부모의 대기 해제
+	// 단, 사용자 프로세스가 아닌 경우 w_sema가 초기화되어 있지 않으니
+	// 조건문으로 처리하기
 	if(user_process){
-		sema_up(&(curr -> w_sema));
+		if (!(curr -> ci -> parent_alive)){
+			// 부모가 죽은 경우, 바로 여기서 free
+			palloc_free_page(curr -> ci);
+		}
+		else {
+			struct list_elem *e;
+			// 모든 자식의 parent_alive를 false처리
+			if (!list_empty(&(curr->children))){
+				for (e = list_begin(&(curr -> children)); e != list_end(&(curr -> children)); e = list_next(e)){
+					list_entry(e, struct child_info, c_elem) -> parent_alive = false;
+				}
+			}
+		// 생존여부 / exit_code 설정 후, sema_up
+		curr -> ci -> alive = false;	
+		curr -> ci -> exit_code = curr -> exit_code;
+		sema_up(&(curr -> ci -> w_sema));
+		
+		}
+		
 	}
 	
 }
