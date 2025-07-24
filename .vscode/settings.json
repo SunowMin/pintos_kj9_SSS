@@ -21,7 +21,10 @@
         "vaddr.h": "c",
         "thread.h": "c",
         "atomic": "c",
-        "mmu.h": "c"
+        "mmu.h": "c",
+        "filesys.h": "c",
+        "inode.h": "c",
+        "file.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

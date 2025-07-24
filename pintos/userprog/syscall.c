@@ -12,6 +12,8 @@
 #include "intrinsic.h"
 #include "userprog/process.h"
 #include "threads/palloc.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 
 void syscall_entry (void);
@@ -105,13 +107,43 @@ syscall_handler (struct intr_frame *f) {
 			// [구현 8-7] 자식 프로세스를 기다린다.
 			f -> R.rax = process_wait(f -> R.rdi);
 			break;
+		case SYS_CREATE:
+			/* Create a file. */
+			// [구현 9]	파일을 만든다.
+			valid_pointer(f -> R.rdi);
+			f -> R.rax = filesys_create((char *)(f -> R.rdi), f -> R.rsi);
+			break;
+		case SYS_REMOVE:
+			/* Delete a file. */
+			// [구현 10] 파일을 삭제한다.
+			valid_pointer(f -> R.rdi);
+			f -> R.rax = filesys_remove((char *)(f -> R.rdi));
+			break;
+		case SYS_OPEN:
+			/* Open a file. */
+			// [구현 11-3] 파일 오픈 후 반한된 file 포인터를 fdt 테이블에 삽입한 뒤, 식별자 번호를 반환한다.
+			struct file *opened_file;
+			valid_pointer(f -> R.rdi);
+			opened_file = filesys_open((char *)(f -> R.rdi));
 
-		
-		
-		// case SYS_CREATE:              /* Create a file. */
-		// case SYS_REMOVE:                 /* Delete a file. */
-		// case SYS_OPEN:                   /* Open a file. */
-		// case SYS_FILESIZE:               /* Obtain a file's size. */
+			if (opened_file == NULL){
+				// 파일 열기에 실패한 경우 -1 반환
+				f -> R.rax = -1;
+			} else {
+				// 파일 열기에 성공한 경우 fdt에 포인터 삽입하기
+				(thread_current() -> fdt)[thread_current() -> next_fd] = opened_file;
+				// 파일 식별자 반환
+				f -> R.rax = thread_current() -> next_fd;
+				// 다음 파일 식별자 값 1 증가
+				thread_current() -> next_fd += 1;
+			}
+			break;
+
+		case SYS_FILESIZE:               
+			/* Obtain a file's size. */
+			// [구현 12] 파일 식별자에 대응되는 파일의 크기를 반환한다.
+			f -> R.rax = file_length(thread_current() -> fdt[(int)(f -> R.rdi)]);
+			break;
 		// case SYS_READ:                   /* Read from a file. */
 		// case SYS_SEEK:                   /* Change position in a file. */
 		// case SYS_TELL:                   /* Report current position in a file. */

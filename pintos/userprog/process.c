@@ -46,10 +46,11 @@ struct init_aux {
 void
 process_init (void) {
 	struct thread *current = thread_current ();
-	list_init(&(current -> children));
+
 	// [구현 7-1] 쓰레드 구조체의 세마포어 초기화
 	sema_init(&(current -> f_sema), 0);
 	// [구현 8-1] child_info 초기화
+	list_init(&(current -> children));
 	struct child_info *ci = palloc_get_page(PAL_ZERO);
 	ci -> parent_alive = true;
 	sema_init(&(ci -> w_sema), 0);
@@ -57,6 +58,10 @@ process_init (void) {
 	ci -> alive = true;
 	ci -> waiting = false;
 	current -> ci = ci;
+
+	// [구현 11-1] fdt 초기화
+	current -> fdt = calloc(64, sizeof(struct file *));
+	current -> next_fd = 2;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -359,7 +364,7 @@ process_wait (tid_t child_tid UNUSED) {
 		child -> waiting = false;
 	}
 
-	// [구현 8-5] 자식이 종료되면...
+	// [구현 8-6] 자식이 종료되면...
 	// 자식을 리스트에서 없애고, free하고, 자식의 exit 코드 반환.
 	wait_return = child -> exit_code;
 	//printf("자식 %d의 exit 코드: %d", child->tid, child->exit_code);
@@ -383,61 +388,40 @@ process_wait (tid_t child_tid UNUSED) {
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
-	// [구현 5-2] exit 및 exit 메시지 띄우기 구현
+	
 	struct thread *curr = thread_current ();
 
 	// 사용자 프로세스만 pml4 테이블을 가짐
 	bool user_process = curr -> pml4 != NULL;
-	// 세마포어를 올려 줌
-	//printf("%d: 부모 %d를 위한 세마포어를 올려랏\n", curr -> tid, curr -> parent -> tid);
-
-	// if (curr -> parent && curr -> parent -> waiting){
-	// 	curr -> parent -> waiting = false;
-	// 	//printf("waiting 설정 해제도 성공\n");
-	// }
-
-	// 이거 어떻게 예외 처리 해야하지?
-	// if(curr -> pml4 != NULL){
-	// 	sema_up(&(curr -> w_sema));
-	// }
-	
-	// 사용자 프로세스가 exit하지 않는 경우, exit 메시지를 띄우면 안 됨
-	// 커널 프로세스엔 pml4 테이블이 할당되지 않음
-	if (user_process){
-		printf("%s: exit(%d)\n", curr -> name, curr -> exit_code);
-	}
 
 	process_cleanup ();
 	
-	// [구현 8-6] 세마포아를 올려 부모의 대기 해제
-	// 단, 사용자 프로세스가 아닌 경우 w_sema가 초기화되어 있지 않으니
-	// 조건문으로 처리하기
+	// 사용자 프로세스일 때만 아래 코드를 실행.
 	if(user_process){
+		// [구현 5-2] exit 및 exit 메시지 띄우기 구현
+		printf("%s: exit(%d)\n", curr -> name, curr -> exit_code);
+
+		struct list_elem *e;
+		// 모든 자식의 parent_alive를 false처리
+		if (!list_empty(&(curr->children))){
+			for (e = list_begin(&(curr -> children)); e != list_end(&(curr -> children)); e = list_next(e)){
+				list_entry(e, struct child_info, c_elem) -> parent_alive = false;
+			}
+		}
+
 		if (!(curr -> ci -> parent_alive)){
 			// 부모가 죽은 경우, 바로 여기서 free
 			palloc_free_page(curr -> ci);
 		}
 		else {
-			struct list_elem *e;
-			// 모든 자식의 parent_alive를 false처리
-			if (!list_empty(&(curr->children))){
-				for (e = list_begin(&(curr -> children)); e != list_end(&(curr -> children)); e = list_next(e)){
-					list_entry(e, struct child_info, c_elem) -> parent_alive = false;
-				}
-			}
-		// 생존여부 / exit_code 설정 후, sema_up
+		// [구현 8-6] 자신의 child_info 수정
 		curr -> ci -> alive = false;	
 		curr -> ci -> exit_code = curr -> exit_code;
+
+		// [구현 8-7] 세마포아를 올려 부모의 대기 해제
 		sema_up(&(curr -> ci -> w_sema));
-		
-		}
-		
+		}	
 	}
-	
 }
 
 /* Free the current process's resources. */
