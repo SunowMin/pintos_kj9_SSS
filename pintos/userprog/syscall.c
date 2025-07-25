@@ -8,10 +8,16 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 // 헤더 파일 추가 header
+#include <string.h>
 #include "threads/init.h"
+#include "threads/palloc.h"
+#include "threads/mmu.h"
+#include "userprog/process.h"
+#include "filesys/filesys.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
+void check_address(void *addr);
 
 /* System call.
  *
@@ -47,6 +53,10 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	// int syscall_no = (const int *)f->rsp;
 	int syscall_no = (int)f->R.rax;
 
+	// f->R.rdi = fd
+	// f->R.rsi = buffer
+	// f->R.rdx = size
+
 	switch (syscall_no)
 	{
 	case SYS_HALT:
@@ -54,10 +64,30 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		break;
 
 	case SYS_WRITE:
-		// f->R.rdi = fd
-		// f->R.rsi = buffer
-		// f->R.rdx = size
-		putbuf(f->R.rsi, f->R.rdx);
+		check_address(f->R.rsi); // 버퍼를 검사?
+
+		if (f->R.rdi == 0 || f->R.rdi >= 64)
+		{
+			f->R.rax = -1;
+		}
+		else if (f->R.rdi == 1)
+		{
+			putbuf(f->R.rsi, f->R.rdx);
+			f->R.rax = f->R.rdx;
+		}
+		else
+		{
+			struct file *fobj = thread_current()->fdt[f->R.rdi];
+			if (fobj == NULL)
+			{
+				f->R.rax = -1;
+			}
+			else
+			{
+				file_write(fobj, f->R.rsi, f->R.rdx);
+				f->R.rax = f->R.rdx;
+			}
+		}
 		break;
 
 	case SYS_EXIT:
@@ -67,22 +97,60 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		break;
 
 	case SYS_EXEC:
-		// char *stack = (uint64_t *)f->rsp;
-		// char *cmd_line = (char *)stack[1];
 
 		char *fn_cp;
-		// char *cmd_line = (char *)f->R.rdi;
 
-		if (!is_user_vaddr(f->R.rdi) || f->R.rdi == NULL)
-		{
-			f->R.rax = -1;
-			break;
-		}
+		check_address(f->R.rdi);
 
 		fn_cp = palloc_get_page(0); // process_exec에서 palloc으로 해제하기 떄문에
 		strlcpy(fn_cp, f->R.rdi, PGSIZE);
-		f->R.rax = process_exec(fn_cp); // 반환값은 rax 레지스터에 저장
-		palloc_free_page(fn_cp);
+
+		f->R.rax = process_exec(fn_cp);
+		thread_exit();
+		break;
+
+	case SYS_CREATE:
+		check_address(f->R.rdi);
+		f->R.rax = filesys_create(f->R.rdi, f->R.rdx);
+		break;
+
+	case SYS_FORK:
+		check_address(f->R.rdi);
+		f->R.rax = process_fork(f->R.rdi, f);
+		break;
+
+	case SYS_OPEN:
+		/* 1. thread 안에 fdt 멤버 추가 */
+		/* 2. fdt을 malloc으로 초기화 - process_init */
+		/* 3. filesys_open로 열고 반환받은 포인터를 fd에 할당 */
+		/* 4. filesys가 null을 반환하면, -1을 반환 */
+		check_address(f->R.rdi);
+		struct file *fp = filesys_open(f->R.rdi);
+		struct thread *cur = thread_current();
+
+		if (fp == NULL)
+		{
+			f->R.rax = -1; // 파일이 없으면 –1
+			break;
+		}
+		else
+		{
+			cur->fdt[cur->next_fd] = fp;
+			f->R.rax = cur->next_fd;
+			cur->next_fd += 1;
+		}
+		break;
+
+	case SYS_FILESIZE:
+		f->R.rax = file_length(thread_current()->fdt[f->R.rdi]);
+		break;
+
+	case SYS_CLOSE:
+		if (2 <= f->R.rdi && f->R.rdi <= 63)
+		{
+			file_close(thread_current()->fdt[f->R.rdi]);
+			thread_current()->fdt[f->R.rdi] = NULL;
+		}
 		break;
 
 	default:
@@ -90,4 +158,14 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	}
 	// printf("system call!\n");
 	// thread_exit();
+}
+
+void check_address(void *addr)
+{
+	struct thread *cur = thread_current();
+	if (addr == NULL || !(is_user_vaddr(addr)) || pml4_get_page(cur->pml4, addr) == NULL)
+	{
+		thread_current()->exit_arg = -1;
+		thread_exit();
+	}
 }

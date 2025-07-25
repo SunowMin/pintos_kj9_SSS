@@ -5,7 +5,10 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
+#include "include/filesys/file.h"
 #ifdef VM
+
 #include "vm/vm.h"
 #endif
 
@@ -101,6 +104,11 @@ struct thread
 	uint64_t *pml4; /* Page map level 4 */
 	/* exit 매개변수 추가 */
 	int exit_arg;
+	/* fork sema */
+	struct semaphore f_sema;
+	/* fdt 멤버 */
+	struct file *fdt[64];
+	int next_fd;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

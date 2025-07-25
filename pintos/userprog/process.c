@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "devices/timer.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -31,7 +32,14 @@ static void __do_fork(void *);
 static void
 process_init(void)
 {
-	struct thread *current = thread_current();
+	struct thread *cur = thread_current();
+
+	/* 스레드 구조체의 세마포어 초기화 */
+	sema_init(&(cur->f_sema), 0);
+
+	/* fdt 공간 초기화 */
+	memset(cur->fdt, 0, sizeof cur->fdt);
+	cur->next_fd = 2;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -81,13 +89,24 @@ initd(void *f_name)
 	NOT_REACHED();
 }
 
+struct fork_aux
+{
+	struct thread *parent;
+	struct intr_frame *parent_if;
+};
+
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED)
 {
+	struct fork_aux *fa = malloc(sizeof(struct fork_aux));
+	fa->parent = thread_current();
+	fa->parent_if = if_;
 	/* Clone current thread to new thread.*/
-	return thread_create(name,
-											 PRI_DEFAULT, __do_fork, thread_current());
+	tid_t result = thread_create(name,
+															 PRI_DEFAULT, __do_fork, fa);
+	sema_down(&(thread_current()->f_sema));
+	return result;
 }
 
 #ifndef VM
@@ -132,10 +151,13 @@ static void
 __do_fork(void *aux)
 {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *)aux;
+	struct thread *parent = ((struct fork_aux *)(aux))->parent;
 	struct thread *current = thread_current();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+
+	struct intr_frame *parent_if = ((struct fork_aux *)(aux))->parent_if;
+	free(aux);
+
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -227,10 +249,10 @@ int process_wait(tid_t child_tid UNUSED)
 	// while (1)
 	// {
 	// }
-	for (int i = 0; i < 1000000000; i++)
-	{
-	}
-
+	// for (int i = 0; i < 1000000000; i++)
+	// {
+	// }
+	timer_sleep(1000);
 	return -1;
 }
 
@@ -364,6 +386,7 @@ load(const char *file_name, struct intr_frame *if_)
 	char *token, *save_ptr;
 	char *arg_list[100]; // char * 타입의 배열. 배열의 각 요소(arg_list[0], arg_list[1]... 는 포인터이므로 모두 같은 크기를 가진다.)
 	int idx = 0;
+
 	for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
 	{
 		arg_list[idx] = token;
@@ -466,9 +489,7 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
 	argument_stack(arg_list, idx, if_);
-
 	success = true;
 
 done:
