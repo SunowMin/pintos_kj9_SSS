@@ -18,6 +18,8 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
+#include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -26,11 +28,23 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+// [구현 7-2] 자식에게 부모의 인터럽트 프레임 전달하기 위해 구조체 선언
+struct fork_aux{
+		struct thread *parent;
+		struct intr_frame *parent_if;
+};
 
 /* General process initializer for initd and other process. */
-static void
+// static void
+void
 process_init (void) {
 	struct thread *current = thread_current ();
+	// [구현 7-1] 현재 쓰레드 구조체의 세마포어 초기화
+	sema_init(&(current->f_sema),0);
+	// 동적 fdt 할당 및 0으로 초기화
+	// exit할 때 free 해줘야 함
+	current -> fd_table = calloc(128, sizeof (struct file *));
+	current -> next_fd = 2;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -96,13 +110,21 @@ initd (void *f_name) {
 	NOT_REACHED ();
 }
 
+
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+	// [구현 7-2] 자식에게 부모의 인터럽트 프레임 전달
+	// 이 구조체 포인터를 thread_create(…, __do_fork, aux)의 인자로 넘기고 넘긴 다음에도 살아있어야 하니까 malloc써서 힙 영역에 공간 할당
+	// 자식이 부모인터럽트 프레임을 다 읽으면 malloc으로 할당한 공간 free해줘야 함
+	struct fork_aux *fa = malloc(sizeof(struct fork_aux));
+	fa -> parent = thread_current();
+	fa -> parent_if = if_;
+	
 	/* Clone current thread to new thread.*/
 	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+			PRI_DEFAULT, __do_fork, fa);
 }
 
 #ifndef VM
@@ -207,7 +229,7 @@ process_exec (void *f_name) {
 	success = load (file_name, &_if);
 
 	// push한 값이 제대로 들어갔는지 확인
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -239,9 +261,10 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
 	// 구현 [2-1-1] 임시로 무한루프 적용 -> 2-2에서 구현 예정
-	while(1){
-		// infinite loop
-	}
+	// while(1){
+	// 	// infinite loop
+	// }
+	thread_sleep(1500);
 
 	return -1;
 }
@@ -254,7 +277,12 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-
+	
+	if(curr->pml4 != NULL){
+	// 사용자 모드인 경우 출력
+	 printf ("%s: exit(%d)\n", curr->name, curr->exit_arg);
+	}
+	 
 	process_cleanup ();
 }
 
@@ -513,7 +541,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	// 3. NULL 포인터 push
 	if_ -> rsp -= sizeof(char *);
 	// memset은 굳이 안해도 됨(setup_stack에서 초기화할 때 0으로 해줌)
-	memset(if_->rsp, 0, sizeof(char *));
+	// memset(if_->rsp, 0, sizeof(char *));
 	
 	// 4. argv[i]들의 주소를 스택에 역순(argv[argc-1] ~ argv[0])으로 쌓기
 	for (i = argc-1; i>=0; i--){
@@ -533,7 +561,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	// 64비트 시스템에서 리턴 주소(포인터)의 크기는 8바이트(=64비트)이기 때문에 8을 빼줌
 	if_ -> rsp -= 8;
 	// memset 없어도 됨 
-	memset(if_->rsp, 0, 8);
+	// memset(if_->rsp, 0, 8);
 
 	// [8] 성공 처리
 	success = true;

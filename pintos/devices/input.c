@@ -24,15 +24,21 @@ input_putc (uint8_t key) {
 }
 
 /* Retrieves a key from the input buffer.
-   If the buffer is empty, waits for a key to be pressed. */
+   If the buffer is empty, waits for a key to be pressed. 
+   입력 버퍼에서 키를 가져옵니다. 버퍼가 비어있으면 키가 눌릴 때까지 대기합니다.*/
+// 키보드 입력이 들어올 때까지 기다렸다가, 입력된 1바이트를 반환하는 함수
 uint8_t
 input_getc (void) {
 	enum intr_level old_level;
 	uint8_t key;
 
+	// 현재 인터럽트 비활성화
 	old_level = intr_disable ();
+	// buffer에서 입력된 키 값을 1바이트 읽어옴
 	key = intq_getc (&buffer);
+	// 시리얼 포트에 알림을 보내 입력 처리 상태를 갱신함
 	serial_notify ();
+	// 원래의 인터럽트 상태로 복구
 	intr_set_level (old_level);
 
 	return key;

@@ -31,7 +31,10 @@ intq_full (const struct intq *q) {
 /* Removes a byte from Q and returns it.
    Q must not be empty if called from an interrupt handler.
    Otherwise, if Q is empty, first sleeps until a byte is
-   added. */
+   added. 
+   Q에서 바이트 하나를 제거하여 반환합니다.
+	이 함수가 인터럽트 핸들러에서 호출될 경우, Q는 비어 있으면 안 됩니다.
+	그 외의 경우, Q가 비어 있으면 바이트가 추가될 때까지 먼저 잠에 듭니다*/
 uint8_t
 intq_getc (struct intq *q) {
 	uint8_t byte;

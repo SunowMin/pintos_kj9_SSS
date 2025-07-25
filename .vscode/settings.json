@@ -3,6 +3,23 @@
         "timer.h": "c",
         "stdio.h": "c",
         "round.h": "c",
-        "stdlib.h": "c"
-    }
+        "stdlib.h": "c",
+        "debug.h": "c",
+        "syscall-nr.h": "c",
+        "*.inc": "c",
+        "process.h": "c",
+        "syscall.h": "c",
+        "chrono": "c",
+        "string_view": "c",
+        "filesys.h": "c",
+        "cstdio": "c",
+        "deque": "c",
+        "string": "c",
+        "vector": "c",
+        "functional": "c",
+        "type_traits": "c",
+        "directory.h": "c",
+        "typeinfo": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }

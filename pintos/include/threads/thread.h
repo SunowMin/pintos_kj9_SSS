@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -99,6 +100,14 @@ struct thread {
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	// exit 인자로 쓰기 위한 변수 추가
+	int exit_arg;
+	// [구현 7-1] 세마포어 구조체 멤버 추가 - fork 시스템 콜 용도
+	struct semaphore f_sema;
+	// [구현 open] 
+	struct file **fd_table;				// 열린 파일들을 저장하는 배열
+	int next_fd;						// 새로운 파일을 열 때 할당할 다음 디스크립터 번호
+ 
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

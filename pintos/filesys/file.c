@@ -2,6 +2,7 @@
 #include <debug.h>
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "devices/input.h"
 
 /* An open file. */
 struct file {
@@ -9,6 +10,7 @@ struct file {
 	off_t pos;                  /* Current position. */
 	bool deny_write;            /* Has file_deny_write() been called? */
 };
+
 
 /* Opens a file for the given INODE, of which it takes ownership,
  * and returns the new file.  Returns a null pointer if an
@@ -68,11 +70,21 @@ file_get_inode (struct file *file) {
  * starting at the file's current position.
  * Returns the number of bytes actually read,
  * which may be less than SIZE if end of file is reached.
- * Advances FILE's position by the number of bytes read. */
+ * Advances FILE's position by the number of bytes read. 
+ * 파일의 현재 위치에서 시작하여 FILE에서 BUFFER로 SIZE 바이트를 읽습니다.
+ * 실제로 읽은 바이트 수를 반환하며,
+ * 파일 끝에 도달한 경우 이 값을 SIZE보다 작을 수 있습니다.
+ * 읽은 바이트 수만큼 FILE의 위치를 앞으로 이동시킵니다. */
 off_t
 file_read (struct file *file, void *buffer, off_t size) {
+	// inode_read_at을 호출해서 파일의 현재위치(file->pos)에서
+	// size 바이트만큼 읽어 buffer에 저장
+	// 실제로 읽은 바이트 수가 반환되어 bytes_read에 저장됨
 	off_t bytes_read = inode_read_at (file->inode, buffer, size, file->pos);
+	// 읽은 바이트 수만큼 파일의 현재 위치 포인터(file->pos)를 앞으로 이동시킴
 	file->pos += bytes_read;
+
+	// 0이면 파일 끝 도달 (EOF), -1이면 읽기 실패, >0이면 그만큼 읽음
 	return bytes_read;
 }
 
@@ -80,7 +92,8 @@ file_read (struct file *file, void *buffer, off_t size) {
  * starting at offset FILE_OFS in the file.
  * Returns the number of bytes actually read,
  * which may be less than SIZE if end of file is reached.
- * The file's current position is unaffected. */
+ * The file's current position is unaffected.
+ * 파일의 현재 위치는 영향을 받지 않습니다.*/
 off_t
 file_read_at (struct file *file, void *buffer, off_t size, off_t file_ofs) {
 	return inode_read_at (file->inode, buffer, size, file_ofs);

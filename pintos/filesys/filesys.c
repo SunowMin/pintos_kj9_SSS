@@ -59,14 +59,26 @@ filesys_done (void) {
  * or if internal memory allocation fails. */
 bool
 filesys_create (const char *name, off_t initial_size) {
+	// 새로 만들 파일의 inode를 저장할 디스크 섹터 번호를 저장할 변수
+	// -> 운영체제가 파일을 디스크에 저장할 때는 파일 내용을 섹터 단위로 나눠서 저장
+	// 초기값은 0 (즉, 아직 할당 안됨)
 	disk_sector_t inode_sector = 0;
+	// 루트 디렉토리를 엶. 실패시 dir=NULL;
 	struct dir *dir = dir_open_root ();
-	bool success = (dir != NULL
+	// 4가지 조건을 만족해야 파일 생성이 성공
+	bool success = (
+			dir != NULL
+			// inode를 저장할 디스크 섹터 1개를 할당받았는가?
 			&& free_map_allocate (1, &inode_sector)
+			// 할당받은 섹터에 inode_disk 구조체를 생성하고, 파일길이만큼의 데이터 공간을 초기화
 			&& inode_create (inode_sector, initial_size)
+			// 디렉토리 엔트리에 파일이름과 inode_sector번호를 등록
 			&& dir_add (dir, name, inode_sector));
+	// 4단계 중 하나라도 실패했다면
 	if (!success && inode_sector != 0)
+		// 이미 할당해 둔 섹터를 반환해서 메모리(디스크) 누수 방지
 		free_map_release (inode_sector, 1);
+	// 열었던 디렉토리 핸들을 닫고 리소스 해제
 	dir_close (dir);
 
 	return success;
@@ -95,10 +107,15 @@ filesys_open (const char *name) {
  * or if an internal memory allocation fails. */
 bool
 filesys_remove (const char *name) {
+	// 루트 디렉토리 열기 - 성공:디렉토리핸들(dir), 실패:NULL 반환
 	struct dir *dir = dir_open_root ();
+	// dir이 NULL이 아닌게 맞으면 dir_remove(dir, name)을 호출해 실제 삭제를 시도
+	// dir_remove는 디렉토리 엔트리에서 name을 찾아 지우고 해당 파일의 inode를 삭제표시 또는 해제
 	bool success = dir != NULL && dir_remove (dir, name);
+	// 열었던 루트 디렉토리를 닫아 리소스를 해제
 	dir_close (dir);
 
+	// 삭제 작업의 성공 여부를 호출자에게 반환
 	return success;
 }
 

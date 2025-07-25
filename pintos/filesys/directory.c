@@ -162,9 +162,9 @@ done:
 	return success;
 }
 
-/* Removes any entry for NAME in DIR.
+/* Removes any entry for NAME in DIR.   DIR에서 NAME에 해당하는 디렉토리 엔트리를 제거
  * Returns true if successful, false on failure,
- * which occurs only if there is no file with the given NAME. */
+ * which occurs only if there is no file with the given NAME. 실패는 오직 해당 이름의 파일이 디렉토리에 없을 때만 발생*/
 bool
 dir_remove (struct dir *dir, const char *name) {
 	struct dir_entry e;
