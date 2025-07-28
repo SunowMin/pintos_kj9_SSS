@@ -176,8 +176,15 @@ pdp_for_each(uint64_t *pdp,
 bool pml4_for_each(uint64_t *pml4, pte_for_each_func *func, void *aux)
 {
 	for (unsigned i = 0; i < PGSIZE / sizeof(uint64_t *); i++)
+	/* i=0,1,2, ... ,511 */
+	/* PGSIZE는 보통 4096바이트 */
+	/* sizeof(uint64_t *)는 시스템에서 포인터가 차지하는 크기*/
+	/* 따라서 PGSIZE/sizeof(uint64_t *)는 512. 즉, 한 페이지에 들어갈 수 있는 8바이트 포인터 수*/
 	{
+		/* 물리주소 x를 커널 가상주소로 변환 */
+		/* 다음 레벨의 테이블 엔트리에 접근하기 위해서, */
 		uint64_t *pdpe = ptov((uint64_t *)pml4[i]);
+
 		if (((uint64_t)pdpe) & PTE_P)
 			if (!pdp_for_each((uint64_t *)PTE_ADDR(pdpe), func, aux, i))
 				return false;

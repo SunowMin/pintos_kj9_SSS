@@ -53,9 +53,10 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	// int syscall_no = (const int *)f->rsp;
 	int syscall_no = (int)f->R.rax;
 
-	// f->R.rdi = fd
-	// f->R.rsi = buffer
-	// f->R.rdx = size
+	// f->R.rax => 시스템콜 번호
+	// f->R.rdi => 첫 번째 인자
+	// f->R.rsi => 두 번째 인자
+	// f->R.rdx => 세 번째 인자
 
 	switch (syscall_no)
 	{
@@ -64,27 +65,27 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		break;
 
 	case SYS_WRITE:
-		check_address(f->R.rsi); // 버퍼를 검사?
+		check_address(f->R.rsi); // 버퍼를 검사
 
-		if (f->R.rdi == 0 || f->R.rdi >= 64)
+		if (f->R.rdi == 0 || f->R.rdi >= 64) // 1.잘못된 fd를 받은 경우, 반환값으로 -1
 		{
-			f->R.rax = -1;
+			// f->R.rax = -1; // 필요 여부 확인
 		}
-		else if (f->R.rdi == 1)
+		else if (f->R.rdi == 1) // 2.stdout을 호출하는 경우
 		{
-			putbuf(f->R.rsi, f->R.rdx);
-			f->R.rax = f->R.rdx;
+			putbuf(f->R.rsi, f->R.rdx); // 콘솔에 출력만 한다.
+			f->R.rax = f->R.rdx;				// 필요 여부 확인
 		}
-		else
+		else // 3.정상적으로 fd가 호출되는 경우
 		{
 			struct file *fobj = thread_current()->fdt[f->R.rdi];
-			if (fobj == NULL)
+			if (fobj == NULL) // file이 열리지 않은 경우.
 			{
 				f->R.rax = -1;
 			}
 			else
 			{
-				file_write(fobj, f->R.rsi, f->R.rdx);
+				file_write(fobj, f->R.rsi, f->R.rdx); // 최종적으로 파일이 제대로 들어오면, file_write 호출
 				f->R.rax = f->R.rdx;
 			}
 		}
@@ -116,7 +117,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 
 	case SYS_FORK:
 		check_address(f->R.rdi);
-		f->R.rax = process_fork(f->R.rdi, f);
+		f->R.rax = process_fork((char *)(f->R.rdi), f);
 		break;
 
 	case SYS_OPEN:
@@ -141,6 +142,24 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		}
 		break;
 
+	case SYS_SEEK:
+		int seek_fd = (int)(f->R.rdi);
+		unsigned seek_position = (unsigned)(f->R.rsi);
+		if (2 <= seek_fd && seek_fd <= 127)
+		{
+			file_seek((thread_current()->fdt)[seek_fd], (off_t)(seek_position));
+		}
+		break;
+
+	case SYS_TELL:
+		int tell_fd = (int)(f->R.rdi);
+
+		if (2 <= tell_fd && tell_fd <= 127)
+		{
+			f->R.rax = (off_t)file_tell((thread_current()->fdt)[tell_fd]);
+		}
+		break;
+
 	case SYS_FILESIZE:
 		f->R.rax = file_length(thread_current()->fdt[f->R.rdi]);
 		break;
@@ -151,6 +170,36 @@ void syscall_handler(struct intr_frame *f UNUSED)
 			file_close(thread_current()->fdt[f->R.rdi]);
 			thread_current()->fdt[f->R.rdi] = NULL;
 		}
+		break;
+
+	case SYS_READ:
+		int file_fd = (int)f->R.rdi;
+		char *buffer = (char *)f->R.rsi;
+
+		check_address((void *)buffer);
+
+		if (file_fd == 0)
+		{
+			int i;
+			for (i = 0; i < f->R.rdx; i++)
+			{
+				buffer[i] = input_getc();
+			}
+			f->R.rax = f->R.rdx;
+		}
+		else if (2 <= file_fd && file_fd < 64)
+		{
+			struct file *fobj = (thread_current()->fdt)[file_fd];
+			if (fobj == NULL)
+			{
+				f->R.rax = -1;
+			}
+			else
+			{
+				f->R.rax = file_read((thread_current()->fdt)[file_fd], f->R.rsi, f->R.rdx);
+			}
+		}
+
 		break;
 
 	default:

@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 #include "intrinsic.h"
 #include "devices/timer.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -99,10 +100,12 @@ struct fork_aux
  * TID_ERROR if the thread cannot be created. */
 tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED)
 {
+	// intr_frame과 thread 구조체를 넘겨주기 위한 구조체
 	struct fork_aux *fa = malloc(sizeof(struct fork_aux));
 	fa->parent = thread_current();
 	fa->parent_if = if_;
 	/* Clone current thread to new thread.*/
+	/* This is child process */
 	tid_t result = thread_create(name,
 															 PRI_DEFAULT, __do_fork, fa);
 	sema_down(&(thread_current()->f_sema));
@@ -122,22 +125,39 @@ duplicate_pte(uint64_t *pte, void *va, void *aux)
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if (is_kern_pte(pte))
+	{
+		return true;
+	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page(parent->pml4, va);
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER);
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+
+	memcpy(newpage, parent_page, PGSIZE);
+
+	if (is_writable(pte))
+	{
+		writable = 1;
+	}
+	else
+	{
+		writable = 0;
+	}
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page(current->pml4, va, newpage, writable))
 	{
 		/* 6. TODO: if fail to insert page, do error handling. */
+		return false;
 	}
 	return true;
 }
@@ -185,10 +205,15 @@ __do_fork(void *aux)
 	 * TODO:       the resources of parent.*/
 
 	process_init();
+	if_.R.rax = 0;
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
+	{
+		sema_up(&(parent->f_sema));
 		do_iret(&if_);
+	}
+
 error:
 	thread_exit();
 }
@@ -237,6 +262,11 @@ int process_exec(void *f_name) // f_name은 arguments. 파일명 - 인자1 - 인
  * child of the calling process, or if process_wait() has already
  * been successfully called for the given TID, returns -1
  * immediately, without waiting.
+ * 스레드 TID가 종료될 때까지 대기하고 그 종료 상태를 반환한다.
+ * 만약 예외 등으로 커널에 의해 강제 종료되었다면, -1을 반환한다.
+ * TID가 유효하지 않거나 호출 프로세스의 자식이 아니거나,
+ * 이미 해당 TID에 대해 process_wait()를 한 번이라도 성공적으로 호출한 적이 있다면,
+ * 대기 없이 즉시 -1을 반환한다.
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
