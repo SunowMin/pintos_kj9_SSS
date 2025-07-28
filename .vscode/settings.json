@@ -24,7 +24,9 @@
         "mmu.h": "c",
         "filesys.h": "c",
         "inode.h": "c",
-        "file.h": "c"
+        "file.h": "c",
+        "tss.h": "c",
+        "stdio.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

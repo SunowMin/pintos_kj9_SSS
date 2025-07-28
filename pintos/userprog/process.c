@@ -31,16 +31,20 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void __do_fork (void *);
 static void initd (void *f_name);
 
+// [구현 7-2] 부모의 인터럽트 프레임 전달 위한 구조체 선언
 struct fork_aux {
 	struct thread *parent;
 	struct intr_frame *parent_if;
+	bool success;
 };
 
-// [구현 7-2] 부모의 인터럽트 프레임 전달 위한 구조체 선언
+// [구현 8-10] 부모의 struct thread 전달 위한 구조체 선언
 struct init_aux {
 	struct thread *parent;
 	char *fn_copy;
 };
+
+
 
 /* General process initializer for initd and other process. */
 void
@@ -60,8 +64,11 @@ process_init (void) {
 	current -> ci = ci;
 
 	// [구현 11-1] fdt 초기화
-	current -> fdt = calloc(64, sizeof(struct file *));
+	current -> fdt = calloc(128, sizeof(struct file *));
 	current -> next_fd = 2;
+	
+	// [구현 16-1]
+	current -> running = NULL;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -79,7 +86,8 @@ process_create_initd (const char *file_name) {
 	char *file_token;
 	strlcpy(buffer, file_name, 128);
 
-	// [구현 8-8] 첫 프로세스에 부모의 struct thread 전달하기
+	// [구현 8-10] 첫 프로세스에 부모의 struct thread 전달하기
+	process_init();
 	struct init_aux *ia = malloc(sizeof(struct init_aux));
 	ia -> fn_copy = palloc_get_page(0);
 	if (ia -> fn_copy == NULL){
@@ -87,13 +95,6 @@ process_create_initd (const char *file_name) {
 	}
 	strlcpy(ia -> fn_copy, file_name, PGSIZE);
 	ia -> parent = thread_current();
-
-	/* Make a copy of FILE_NAME.
-	 * Otherwise there's a race between the caller and load(). */
-	// fn_copy = palloc_get_page (0);
-	// if (fn_copy == NULL)
-	// 	return TID_ERROR;
-	// strlcpy (fn_copy, file_name, PGSIZE);
 
 	char *save_ptr;
 	// [구현 1-2] 현재 file_name은 "echo x y z"
@@ -103,7 +104,6 @@ process_create_initd (const char *file_name) {
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_token, PRI_DEFAULT, initd, ia);
 
-	// tid = thread_create (file_token, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR){
 		// palloc_free_page (fn_copy);
 		palloc_free_page(ia -> fn_copy);
@@ -111,14 +111,13 @@ process_create_initd (const char *file_name) {
 		return tid;
 	}
 
-	// 첫 사용자 프로그램이 자식으로 설정될 때까지 세마포어로 대기.
+	// [구현 8-11] 첫 사용자 프로그램이 자식으로 설정될 때까지 세마포어로 대기.
 	sema_down(&(thread_current() -> f_sema));
 	return tid;
 }
 
 /* A thread function that launches first user process. */
 static void
-//initd (void *f_name) {
 initd (void *aux_){
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
@@ -129,7 +128,7 @@ initd (void *aux_){
 	struct thread *curr = thread_current();
 	free(aux_);
 	
-	// [구현 8-9] 첫 프로세스도 부모자식 관계를 설정해야 함.
+	// [구현 8-11] 첫 프로세스도 부모자식 관계를 설정해야 함.
 	list_push_back(&(parent -> children), &(curr -> ci -> c_elem));
 	sema_up(&(parent -> f_sema)); // 설정 완료 후 부모의 대기 해제
 	
@@ -142,18 +141,32 @@ initd (void *aux_){
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
-
+	struct thread *curr = thread_current();
 	// [구현 7-2] 자식에게 부모의 인터럽트 프레임 전달하기.
 	struct fork_aux *fa = malloc(sizeof(struct fork_aux));
+	if (fa == NULL){
+		return TID_ERROR;
+	}
 	fa -> parent = thread_current();
 	fa -> parent_if = if_; 
+	fa -> success = false;
 
 	/* Clone current thread to new thread.*/
 	tid_t result = thread_create(name, PRI_DEFAULT, __do_fork, fa);
 
+	if (result == TID_ERROR){	
+		free(fa);
+		return TID_ERROR;
+	}
+
 	// [구현 7-3] 부모 세마포어 내리기
 	sema_down(&(thread_current()->f_sema));
-	
+
+
+	if (!(fa -> success)){
+		result = TID_ERROR;
+	}
+	free(fa);
 	return result;
 }
 
@@ -202,6 +215,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, new_page, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		palloc_free_page(new_page);
 		return false;
 	}
 	return true;
@@ -222,8 +236,10 @@ __do_fork (void *aux) {
 	struct thread *parent = ((struct fork_aux *)(aux)) -> parent;
 	struct thread *current = thread_current ();
 	struct intr_frame *parent_if = ((struct fork_aux *)(aux)) -> parent_if;
-	free(aux);
+	
 	bool succ = true;
+
+	process_init ();
 
 	/* 1. Read the cpu context to local stack. */
 	// 위에서 변수로 선언한 struct intr_frame if_
@@ -251,16 +267,22 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
-	// 파일 object가 존재하긴 하나 근데?
-	// 아직 안해도될듯
-
-	process_init ();
-	//printf("%d 세마포어 값: f %d w %d\n", current -> tid, current -> f_sema -> value, current -> w_sema ->value);
-
 	
+	
+	//  // 부모 프로세스 복사 가능?
+	for (int fd = 2; fd <= 127; fd++){
+		struct file *parent_file = (parent -> fdt)[fd];
+		if (parent_file != NULL){
+			(thread_current() -> fdt)[fd] = file_duplicate ((parent -> fdt)[fd]);
+		}
+		
+	}
+	thread_current() -> next_fd = parent ->  next_fd;
+
 	
 	/* Finally, switch to the newly created process. */
 	if (succ){
+		((struct fork_aux *)(aux)) -> success = true;
 		// [구현 8-2] fork 이후 부모/자식 관계 설정
 		list_push_back(&(parent -> children), &(current -> ci -> c_elem));				// 부모의 children 리스트에 자식 삽입
 
@@ -269,8 +291,10 @@ __do_fork (void *aux) {
 		do_iret (&if_);
 	}
 error:
+	((struct fork_aux *)(aux)) -> success = false;
 	
-    sema_up(&(parent -> f_sema));
+	//thread_current() -> exit_code = -1;
+	sema_up(&(parent -> f_sema));
 	thread_exit ();
 }
 
@@ -294,8 +318,6 @@ process_exec (void *f_name) {
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
-	// printf("RDI 주소: %p\n", _if.R.rdi);
-	// printf("RSI 주소: %p\n", _if.R.rsi);
 
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 	/* If load failed, quit. */
@@ -364,7 +386,7 @@ process_wait (tid_t child_tid UNUSED) {
 		child -> waiting = false;
 	}
 
-	// [구현 8-6] 자식이 종료되면...
+	// [구현 8-9] 종료된 자식의 child_info free하기
 	// 자식을 리스트에서 없애고, free하고, 자식의 exit 코드 반환.
 	wait_return = child -> exit_code;
 	//printf("자식 %d의 exit 코드: %d", child->tid, child->exit_code);
@@ -372,17 +394,6 @@ process_wait (tid_t child_tid UNUSED) {
 	palloc_free_page(child);
 
 	return wait_return;
-
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-	
-	 // [구현 1-1] 무한 루프로 땜빵하기
-	 // timer_sleep으로 땜빵할 수도 있구나 
-	//timer_sleep (1000);
-	// while (1){
-
-	// }
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -395,12 +406,15 @@ process_exit (void) {
 	bool user_process = curr -> pml4 != NULL;
 
 	process_cleanup ();
+
+	
 	
 	// 사용자 프로세스일 때만 아래 코드를 실행.
 	if(user_process){
 		// [구현 5-2] exit 및 exit 메시지 띄우기 구현
 		printf("%s: exit(%d)\n", curr -> name, curr -> exit_code);
 
+		// [구현 8-5] 자식에게 부모의 죽음 알리기
 		struct list_elem *e;
 		// 모든 자식의 parent_alive를 false처리
 		if (!list_empty(&(curr->children))){
@@ -409,18 +423,33 @@ process_exit (void) {
 			}
 		}
 
+		for (int fd = 2; fd < 128; fd++){
+			file_close((curr -> fdt)[fd]);
+		}
+
+		// [구현 뭐였지] file descriptor table 할당해제
+		free(curr -> fdt);
+		curr -> fdt = NULL;
+
+		// [구현 16-3] 파일 종료 시 다시 실행 허용
+		if (curr -> running != NULL){
+			file_close(curr -> running);
+			curr -> running = NULL;
+		}
+
+		// [구현 8-6] 부모가 죽은 경우 child_info free
 		if (!(curr -> ci -> parent_alive)){
 			// 부모가 죽은 경우, 바로 여기서 free
 			palloc_free_page(curr -> ci);
-		}
-		else {
-		// [구현 8-6] 자신의 child_info 수정
-		curr -> ci -> alive = false;	
-		curr -> ci -> exit_code = curr -> exit_code;
+		} else {
+			// [구현 8-7] 자신의 child_info 수정
+			curr -> ci -> alive = false;	
+			curr -> ci -> exit_code = curr -> exit_code;
 
-		// [구현 8-7] 세마포아를 올려 부모의 대기 해제
-		sema_up(&(curr -> ci -> w_sema));
-		}	
+			// [구현 8-8] 세마포아를 올려 부모의 대기 해제
+			sema_up(&(curr -> ci -> w_sema));
+		}
+
 	}
 }
 
@@ -449,8 +478,9 @@ process_cleanup (void) {
 		curr->pml4 = NULL;
 		pml4_activate (NULL);
 		pml4_destroy (pml4);
-		
 	}
+
+
 
 	
 }
@@ -558,6 +588,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", file_token);
 		goto done;
 	}
+	// [구현 16-1]
+	file_deny_write(file);
+	thread_current() -> running = file;
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -675,7 +708,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	//file_close (file);
 	return success;
 }
 

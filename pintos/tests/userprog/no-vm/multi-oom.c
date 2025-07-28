@@ -72,8 +72,7 @@ consume_some_resources_and_die (void)
 {
   consume_some_resources ();
   int *KERN_BASE = (int *)0x8004000000;
-
-  switch (random_ulong () % 5) {
+  switch (random_ulong() % 5) {
 	case 0:
 	  *(int *) NULL = 42;
     break;
@@ -107,7 +106,9 @@ make_children (void) {
   for (; ; random_init (i), i++) {
     if (i > EXPECTED_DEPTH_TO_PASS/2) {
       snprintf (child_name, sizeof child_name, "%s_%d_%s", "child", i, "X");
+      
       pid = fork(child_name);
+
       if (pid > 0 && wait (pid) != -1) {
         fail ("crashed child should return -1.");
       } else if (pid == 0) {
@@ -117,7 +118,10 @@ make_children (void) {
     }
 
     snprintf (child_name, sizeof child_name, "%s_%d_%s", "child", i, "O");
+    
     pid = fork(child_name);
+    // msg("child_name %s의 fork 결과 %d", child_name, pid);
+    
     if (pid < 0) {
       exit (i);
     } else if (pid == 0) {

@@ -126,6 +126,7 @@ struct thread {
 	// // file 관련 시스템 콜에 필요
 	struct file **fdt;			/* file descriptor 테이블 */
 	int next_fd;						/* file descriptor - 다음은 몇번째? */
+	struct file *running;				/* 현재 실행 중인 파일 */
 
 	#endif
 #ifdef VM
