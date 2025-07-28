@@ -14,6 +14,7 @@
 #include "threads/mmu.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "kernel/console.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -41,13 +42,13 @@ bool valid_pointer (void *p){
 	}
 }
 
+// 사이즈만큼 들어온 버퍼 전체가 유효한 유저 주소인지 확인
 void check_valid_buffer(void *buffer, unsigned size) {
     uint8_t *ptr = (uint8_t *)buffer;
     for (unsigned i = 0; i < size; i++) {
         valid_pointer(ptr + i);  // 각 바이트 주소가 유효한 유저 주소인지 확인
     }
 }
-
 
 void
 syscall_init (void) {
@@ -109,13 +110,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 
 		case SYS_FORK:
-
-			break;
-
-		case SYS_WRITE:
-			if((int)f->R.rdi == 1){
-				putbuf((const char *)f->R.rsi, f->R.rdx);
-			} 
+			// [구현 7-7] 자식 프로세스 생성 및 복제
+			valid_pointer(f->R.rdi);
+			f -> R.rax = process_fork((char *)(f->R.rdi), f);
 			break;
 
 		case SYS_CREATE:
@@ -200,7 +197,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				// 	((uint8_t *)f->R.rsi)[i] = input_getc();
 				// }
 				f->R.rax = input_getc();
-				// 읽은 바이트 수 반환
+				// 반복문 진행 시 적용 - 읽은 바이트 수 반환
 				// f->R.rax = i;
 			}
 			else if(2>fd_read || fd_read>127){
@@ -215,8 +212,44 @@ syscall_handler (struct intr_frame *f UNUSED) {
 					f->R.rax = file_read(fp_read, f->R.rsi, f->R.rdx);
 				}
 			}
-
 			break;
+
+		case SYS_WRITE:
+		// 실제로 쓰여진 바이트 수를 반환하는 역할
+		// int write (int fd, const void *buffer, unsigned size) {return syscall3 (SYS_WRITE, fd, buffer, size);}
+			valid_pointer(f->R.rsi);
+
+			// 1. fd 범위 검사
+			if (f->R.rdi ==0 || f->R.rdi > 128){
+				break;
+			}
+			// 2. stdout을 호출하는 경우
+			else if(f->R.rdi == 1){
+				// BUFFER로부터 N바이트를 콘솔에 출력합니다
+				putbuf(f->R.rsi, f->R.rdx);
+				f->R.rax = f->R.rdx;
+			}
+			// 3. 정상적인 fd가 입력된 경우
+			else{
+				struct file *fobj = thread_current()->fd_table[f->R.rdi];
+				file_write(fobj, f->R.rsi, f->R.rdx);
+				f->R.rax = f->R.rdx;
+			}
+
+
+			// // 표준출력(stdout, fd==1)이 입력된 경우
+			// if (f->R.rdi == 1){
+			// 	// BUFFER로부터 N바이트를 콘솔에 출력합니다
+			// 	putbuf(f->R.rsi, f->R.rdx);
+			// 	// 리턴 값 설정
+			// 	f->R.rax = f->R.rdx;
+			// }
+			// else if(2 <= f->R.rdi && f->R.rdi <= 127){
+			// 	struct file *fobj = thread_current()->fd_table[f->R.rdi];
+			// 		f->R.rax =file_write(fobj, f->R.rsi, f->R.rdx);
+			// }
+			break;
+
 		case SYS_SEEK:
 			int fd_seek = (int)(f -> R.rdi);
 			unsigned seek_position = (unsigned)(f->R.rsi);
@@ -232,13 +265,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 			break;
 
-		// case SYS_WRITE:
-		// 	if (f->R.rdi == 0 || f->R.rdi >= 128){
-		// 		break;
-		// 	}
-		// 	else if (f->R.rdi == 1){
-		// 		putbuf(f->R.rsi, f->R.rdx);
-				
-		// 	}
+
+			
 	}
 }

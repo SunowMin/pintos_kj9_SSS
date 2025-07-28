@@ -102,7 +102,7 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 	// exit 인자로 쓰기 위한 변수 추가
 	int exit_arg;
-	// [구현 7-1] 세마포어 구조체 멤버 추가 - fork 시스템 콜 용도
+	// [구현 7-1] 세마포어 추가 - fork 시스템 콜 용도
 	struct semaphore f_sema;
 	// [구현 open] 
 	struct file **fd_table;				// 열린 파일들을 저장하는 배열

@@ -106,6 +106,7 @@ file_read_at (struct file *file, void *buffer, off_t size, off_t file_ofs) {
  * (Normally we'd grow the file in that case, but file growth is
  * not yet implemented.)
  * Advances FILE's position by the number of bytes read. */
+// 파일에 buffer로부터 size 바이트를 씁니다
 off_t
 file_write (struct file *file, const void *buffer, off_t size) {
 	off_t bytes_written = inode_write_at (file->inode, buffer, size, file->pos);

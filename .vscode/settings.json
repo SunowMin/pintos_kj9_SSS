@@ -19,7 +19,8 @@
         "functional": "c",
         "type_traits": "c",
         "directory.h": "c",
-        "typeinfo": "c"
+        "typeinfo": "c",
+        "console.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

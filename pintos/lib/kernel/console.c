@@ -138,7 +138,8 @@ puts (const char *s) {
 	return 0;
 }
 
-/* Writes the N characters in BUFFER to the console. */
+/* Writes the N characters in BUFFER to the console. 
+BUFFER로부터 N바이트를 콘솔에 출력합니다 */
 void
 putbuf (const char *buffer, size_t n) {
 	acquire_console ();
