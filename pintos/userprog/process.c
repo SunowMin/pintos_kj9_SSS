@@ -101,6 +101,10 @@ process_create_initd (const char *file_name) {
 	};
 
 	struct init_aux *ia = malloc(sizeof(struct init_aux));
+	if (ia == NULL){
+		return TID_ERROR;
+	}
+
 	ia -> fn_copy = palloc_get_page(0);
 	if (ia -> fn_copy == NULL){
 		return TID_ERROR;
@@ -207,10 +211,16 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	/* 2. Resolve VA from the parent's page map level 4. */
 	/* 2. 부모의 pml4 테이블에 부모 페이지의 주소를 parent_page에 저장한다. */
 	parent_page = pml4_get_page (parent->pml4, va);
+	if (parent_page == NULL){
+		return false;
+	}
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
 	new_page = palloc_get_page(PAL_USER);
+	if (new_page == NULL){
+		return false;
+	}
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE

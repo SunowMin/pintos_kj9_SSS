@@ -120,8 +120,10 @@ syscall_handler (struct intr_frame *f) {
 			// 성공할 시 return하지 않음에 유의
 			valid_pointer(f -> R.rdi);
 			char *f_name = palloc_get_page(0);
-			strlcpy(f_name, f->R.rdi, PGSIZE);
-			f -> R.rax = process_exec(f_name);
+			if (f_name != NULL){
+				strlcpy(f_name, f->R.rdi, PGSIZE);
+				f -> R.rax = process_exec(f_name);
+			}
 			thread_current() -> exit_code = -1;
 			thread_exit();
 			break;
