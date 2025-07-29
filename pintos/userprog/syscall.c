@@ -99,6 +99,7 @@ syscall_handler (struct intr_frame *f) {
 			if (write_fd == 1){
 				putbuf((char *)(f -> R.rsi), (size_t)(f -> R.rdx));
 			} else if (2 <= write_fd && write_fd <= 127) {
+				// [구현 4-2] fd가 1이 아닐 땐 파일창으로 출력한다
 				lock_acquire(&filesys_lock);
 				struct file *write_file = (thread_current() -> fdt)[write_fd];
 				if (write_file != NULL){
@@ -156,9 +157,11 @@ syscall_handler (struct intr_frame *f) {
 			/* Open a file. */
 			// [구현 11-3] 파일 오픈 후 반한된 file 포인터를 fdt 테이블에 삽입한 뒤, 식별자 번호를 반환한다.
 			struct file *opened_file;
+			int set_fd;
+			
 			valid_pointer(f -> R.rdi);
 			lock_acquire(&filesys_lock);
-			int set_fd = find_empty_fd(thread_current() -> next_fd);
+			set_fd = find_empty_fd(thread_current() -> next_fd);
 			if (set_fd == -1){
 				f -> R.rax = -1;
 			} else if (2 <= set_fd && set_fd <= 127) {
@@ -197,7 +200,6 @@ syscall_handler (struct intr_frame *f) {
 			if (2 <= close_fd && close_fd <= 127){
 				lock_acquire(&filesys_lock);
 				struct file *close_file = (thread_current() -> fdt)[close_fd];
-				
 				file_close(close_file);
 				(thread_current() -> fdt)[close_fd] = NULL;
 				lock_release(&filesys_lock);
@@ -208,9 +210,13 @@ syscall_handler (struct intr_frame *f) {
 			// [구현 14] fd에서 읽을 다음 위치를 변경한다.
 			int seek_fd = (int)(f -> R.rdi);
 			unsigned seek_position = (unsigned)(f -> R.rsi);
+			
 			if (2 <= seek_fd && seek_fd <= 127){
+				lock_acquire(&filesys_lock);
 				file_seek((thread_current() -> fdt)[seek_fd], (off_t)(seek_position));
+				lock_release(&filesys_lock);
 			}
+			
 			break;
 		case SYS_TELL:                   
 			/* Report current position in a file. */
@@ -218,19 +224,29 @@ syscall_handler (struct intr_frame *f) {
 			int tell_fd = (int)(f -> R.rdi);
 			
 			if (2 <= tell_fd && tell_fd <= 127){
+				lock_acquire(&filesys_lock);
 				f -> R.rax = (off_t)file_tell((thread_current() -> fdt)[tell_fd]);
+				lock_release(&filesys_lock);
 			}
+			
 			break;
 		case SYS_READ:
 			int read_fd = (int)(f -> R.rdi); 
-			// [구현 16-1] fd가 0일 땐 stdin, 키보드에서 읽는다
+			valid_pointer(f -> R.rsi);
+			//[구현 16-1] fd가 0일 땐 stdin, 키보드에서 읽는다
 			if (read_fd == 0){
-				// 이게 맞나?? 개선 필요.
-				f -> R.rax = (int)input_getc();
-			} else if (2 <= read_fd && read_fd <= 127) {
+				char *read_buffer = (char *)(f -> R.rsi);
+				int i;
+				for (i = 0; i < (size_t)(f -> R.rdx); i++){
+					char c = input_getc();	// 문자 하나 입력
+					read_buffer[i] = c;
+					if (c == '\0') break;	// 널 만자 만나면 종료
+				}
+				f -> R.rax = i;		// 읽은 바이트 수
+			} else 
+			if (2 <= read_fd && read_fd <= 127) {
 				// [구현 16-2] fd가 0이 아닐 땐 파일에서 읽는다
 				lock_acquire(&filesys_lock);
-				valid_pointer(f -> R.rsi);
 				struct file *read_file = (thread_current() -> fdt)[read_fd];
 				if (read_file != NULL){
 					f -> R.rax = (int)file_read(read_file, f -> R.rsi, f -> R.rdx);

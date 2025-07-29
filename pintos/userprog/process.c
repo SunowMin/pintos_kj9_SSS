@@ -27,7 +27,6 @@
 
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
-// static void initd (void *f_name);
 static void __do_fork (void *);
 static void initd (void *f_name);
 
@@ -47,7 +46,7 @@ struct init_aux {
 
 
 /* General process initializer for initd and other process. */
-void
+int
 process_init (void) {
 	struct thread *current = thread_current ();
 
@@ -56,6 +55,11 @@ process_init (void) {
 	// [구현 8-1] child_info 초기화
 	list_init(&(current -> children));
 	struct child_info *ci = palloc_get_page(PAL_ZERO);
+
+	if (ci == NULL){
+		return -1;
+	}
+
 	ci -> parent_alive = true;
 	sema_init(&(ci -> w_sema), 0);
 	ci -> tid = current -> tid;
@@ -65,10 +69,16 @@ process_init (void) {
 
 	// [구현 11-1] fdt 초기화
 	current -> fdt = calloc(128, sizeof(struct file *));
+	if (current -> fdt == NULL){
+		return -1;
+	}
+
 	current -> next_fd = 2;
 	
 	// [구현 16-1]
 	current -> running = NULL;
+
+	return 0;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -78,7 +88,6 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	// char *fn_copy;
 	tid_t tid;
 
 	// 버퍼 준비
@@ -87,7 +96,10 @@ process_create_initd (const char *file_name) {
 	strlcpy(buffer, file_name, 128);
 
 	// [구현 8-10] 첫 프로세스에 부모의 struct thread 전달하기
-	process_init();
+	if (process_init() == -1){
+		return TID_ERROR;
+	};
+
 	struct init_aux *ia = malloc(sizeof(struct init_aux));
 	ia -> fn_copy = palloc_get_page(0);
 	if (ia -> fn_copy == NULL){
@@ -105,7 +117,6 @@ process_create_initd (const char *file_name) {
 	tid = thread_create (file_token, PRI_DEFAULT, initd, ia);
 
 	if (tid == TID_ERROR){
-		// palloc_free_page (fn_copy);
 		palloc_free_page(ia -> fn_copy);
 		free(ia);
 		return tid;
@@ -252,11 +263,13 @@ __do_fork (void *aux) {
 	process_activate (current);
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
-	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
+	if (!supplemental_page_table_copy (&current->spt, &parent->spt)){
 		goto error;
+	}
 #else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
+	if (!pml4_for_each (parent->pml4, duplicate_pte, parent)){
 		goto error;
+	}
 #endif
 
 	// [구현 7-5] 자식프로세스 반환값 0으로 설정
@@ -269,19 +282,26 @@ __do_fork (void *aux) {
 	 * TODO:       the resources of parent.*/
 	
 	
+	thread_current() -> next_fd = parent -> next_fd;
+
 	//  // 부모 프로세스 복사 가능?
 	for (int fd = 2; fd <= 127; fd++){
 		struct file *parent_file = (parent -> fdt)[fd];
 		if (parent_file != NULL){
-			(thread_current() -> fdt)[fd] = file_duplicate ((parent -> fdt)[fd]);
+			struct file *copy = file_duplicate(parent_file);
+			if (copy == NULL){
+				goto error;
+			}
+			(thread_current() -> fdt)[fd] = copy;
 		}
 		
 	}
-	thread_current() -> next_fd = parent ->  next_fd;
+	
 
 	
 	/* Finally, switch to the newly created process. */
 	if (succ){
+		
 		((struct fork_aux *)(aux)) -> success = true;
 		// [구현 8-2] fork 이후 부모/자식 관계 설정
 		list_push_back(&(parent -> children), &(current -> ci -> c_elem));				// 부모의 children 리스트에 자식 삽입
@@ -292,8 +312,6 @@ __do_fork (void *aux) {
 	}
 error:
 	((struct fork_aux *)(aux)) -> success = false;
-	
-	//thread_current() -> exit_code = -1;
 	sema_up(&(parent -> f_sema));
 	thread_exit ();
 }
@@ -319,7 +337,6 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
-	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
@@ -327,7 +344,6 @@ process_exec (void *f_name) {
 
 
 	/* Start switched process. */
-	//printf("세마포어 값 f %d w %d\n", thread_current() -> f_sema -> value, thread_current() -> w_sema -> value);
 	do_iret (&_if);
 	NOT_REACHED ();
 }
@@ -345,19 +361,16 @@ process_exec (void *f_name) {
 int
 process_wait (tid_t child_tid UNUSED) {
 	//[구현 8-3] children 리스트에서 child_tid를 가진 자식을 찾기
-	//printf("tid %d 찾는 중\n", child_tid);
 	struct thread *curr = thread_current();
 
 	struct child_info *child;
 	struct list_elem *e;
 	int flag = 0;
 	int wait_return;
-	//printf("리스트크기 %d\n", list_size(&(curr -> children)));
 
 	if (!list_empty(&(curr->children))){
 		for (e = list_begin(&(curr -> children)); e != list_end(&(curr -> children)); e = list_next(e)){
 			child = list_entry(e, struct child_info, c_elem);
-			//printf("찾는 %d, 실제 %d\n", child_tid, child -> tid);
 			if (child -> tid == child_tid){
 				flag = 1;
 				break;
@@ -376,20 +389,14 @@ process_wait (tid_t child_tid UNUSED) {
 	// 이미 자식이 죽은 경우, 바로 exit code를 얻기
 	if (child -> alive){
 		// waiting을 true로 설정하고, 세마포어를 내리기.
-		// if (child -> w_sema -> value == 0){
 		child -> waiting = true;
-		//printf("%d: 여기까지 왔나?\n", curr -> tid);
-		//printf("%d의 자식 %d 세마포어 f %d w %d\n", curr -> tid, child -> tid, child -> f_sema -> value, child -> w_sema -> value);
 		sema_down(&(child -> w_sema));
-		//printf("%d: 여기까지 왔다!\n", curr -> tid);
-		// } 
 		child -> waiting = false;
 	}
 
 	// [구현 8-9] 종료된 자식의 child_info free하기
 	// 자식을 리스트에서 없애고, free하고, 자식의 exit 코드 반환.
 	wait_return = child -> exit_code;
-	//printf("자식 %d의 exit 코드: %d", child->tid, child->exit_code);
 	list_remove(&(child -> c_elem));
 	palloc_free_page(child);
 
@@ -399,7 +406,6 @@ process_wait (tid_t child_tid UNUSED) {
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
-	
 	struct thread *curr = thread_current ();
 
 	// 사용자 프로세스만 pml4 테이블을 가짐
@@ -407,8 +413,6 @@ process_exit (void) {
 
 	process_cleanup ();
 
-	
-	
 	// 사용자 프로세스일 때만 아래 코드를 실행.
 	if(user_process){
 		// [구현 5-2] exit 및 exit 메시지 띄우기 구현
@@ -478,11 +482,7 @@ process_cleanup (void) {
 		curr->pml4 = NULL;
 		pml4_activate (NULL);
 		pml4_destroy (pml4);
-	}
-
-
-
-	
+	}	
 }
 
 /* Sets up the CPU for running user code in the nest thread.
@@ -680,11 +680,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		if_->rsp -= strlen(token) + 1;
 		memcpy((void *)if_->rsp, token, strlen(token) + 1);
 		argv[argc] = (char*)if_->rsp;
-		//printf("argv[%d]: %s, 주소 %p\n", argc, token, argv[argc]);
 		argc += 1;
 		
 	}
-	//printf("argc: %d\n", argc);
 	argv[argc] = NULL;	// 마지막 널주소
 
 	// 2단계. 패딩 바이트를 추가한다 (사실 이미 초기화할때 0이라 스택 포인터만 올리면 됨)
