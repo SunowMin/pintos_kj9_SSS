@@ -12,11 +12,14 @@
 #include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/init.h"
+#include "threads/malloc.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/mmu.h"
+#include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -24,13 +27,58 @@
 
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
-static void initd (void *f_name);
 static void __do_fork (void *);
+static void initd (void *f_name);
+
+// [구현 7-2] 부모의 인터럽트 프레임 전달 위한 구조체 선언
+struct fork_aux {
+	struct thread *parent;
+	struct intr_frame *parent_if;
+	bool success;
+};
+
+// [구현 8-10] 부모의 struct thread 전달 위한 구조체 선언
+struct init_aux {
+	struct thread *parent;
+	char *fn_copy;
+};
+
+
 
 /* General process initializer for initd and other process. */
-static void
+int
 process_init (void) {
 	struct thread *current = thread_current ();
+
+	// [구현 7-1] 쓰레드 구조체의 세마포어 초기화
+	sema_init(&(current -> f_sema), 0);
+	// [구현 8-1] child_info 초기화
+	list_init(&(current -> children));
+	struct child_info *ci = palloc_get_page(PAL_ZERO);
+
+	if (ci == NULL){
+		return -1;
+	}
+
+	ci -> parent_alive = true;
+	sema_init(&(ci -> w_sema), 0);
+	ci -> tid = current -> tid;
+	ci -> alive = true;
+	ci -> waiting = false;
+	current -> ci = ci;
+
+	// [구현 11-1] fdt 초기화
+	current -> fdt = calloc(128, sizeof(struct file *));
+	if (current -> fdt == NULL){
+		return -1;
+	}
+
+	current -> next_fd = 2;
+	
+	// [구현 16-1]
+	current -> running = NULL;
+
+	return 0;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -40,32 +88,65 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
 	tid_t tid;
 
-	/* Make a copy of FILE_NAME.
-	 * Otherwise there's a race between the caller and load(). */
-	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
+	// 버퍼 준비
+	char buffer[128];
+	char *file_token;
+	strlcpy(buffer, file_name, 128);
+
+	// [구현 8-10] 첫 프로세스에 부모의 struct thread 전달하기
+	if (process_init() == -1){
 		return TID_ERROR;
-	strlcpy (fn_copy, file_name, PGSIZE);
+	};
+
+	struct init_aux *ia = malloc(sizeof(struct init_aux));
+	if (ia == NULL){
+		return TID_ERROR;
+	}
+
+	ia -> fn_copy = palloc_get_page(0);
+	if (ia -> fn_copy == NULL){
+		return TID_ERROR;
+	}
+	strlcpy(ia -> fn_copy, file_name, PGSIZE);
+	ia -> parent = thread_current();
+
+	char *save_ptr;
+	// [구현 1-2] 현재 file_name은 "echo x y z"
+    //  file_name은 "echo"만 전달해야 함
+	file_token = strtok_r(buffer, " ", &save_ptr);	// 첫 번째 argument만 저장됨 
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	if (tid == TID_ERROR)
-		palloc_free_page (fn_copy);
+	tid = thread_create (file_token, PRI_DEFAULT, initd, ia);
+
+	if (tid == TID_ERROR){
+		palloc_free_page(ia -> fn_copy);
+		free(ia);
+		return tid;
+	}
+
+	// [구현 8-11] 첫 사용자 프로그램이 자식으로 설정될 때까지 세마포어로 대기.
+	sema_down(&(thread_current() -> f_sema));
 	return tid;
 }
 
 /* A thread function that launches first user process. */
 static void
-initd (void *f_name) {
+initd (void *aux_){
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
-
 	process_init ();
-
+	struct thread *parent = ((struct fork_aux *)(aux_)) -> parent;
+	char *f_name = ((struct init_aux *) aux_) -> fn_copy;
+	struct thread *curr = thread_current();
+	free(aux_);
+	
+	// [구현 8-11] 첫 프로세스도 부모자식 관계를 설정해야 함.
+	list_push_back(&(parent -> children), &(curr -> ci -> c_elem));
+	sema_up(&(parent -> f_sema)); // 설정 완료 후 부모의 대기 해제
+	
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -75,38 +156,88 @@ initd (void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+	struct thread *curr = thread_current();
+	// [구현 7-2] 자식에게 부모의 인터럽트 프레임 전달하기.
+	struct fork_aux *fa = malloc(sizeof(struct fork_aux));
+	if (fa == NULL){
+		return TID_ERROR;
+	}
+	fa -> parent = thread_current();
+	fa -> parent_if = if_; 
+	fa -> success = false;
+
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	tid_t result = thread_create(name, PRI_DEFAULT, __do_fork, fa);
+
+	if (result == TID_ERROR){	
+		free(fa);
+		return TID_ERROR;
+	}
+
+	// [구현 7-3] 부모 세마포어 내리기
+	sema_down(&(thread_current()->f_sema));
+
+
+	if (!(fa -> success)){
+		result = TID_ERROR;
+	}
+	free(fa);
+	return result;
 }
 
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
  * pml4_for_each. This is only for the project 2. */
+// pte는 부모 페이지테이블의 각 엔트리
+// va는 해당 엔트리의 가상 주소
+// aux는 부모 프로세스 (struct thread) 주소
 static bool
 duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	struct thread *current = thread_current ();
 	struct thread *parent = (struct thread *) aux;
 	void *parent_page;
-	void *newpage;
+	void *new_page;
 	bool writable;
 
+	// [구현 7-4] 부모의 페이지 테이블 복사를 위한, duplicate_pte 함수 완성하기
+
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	/* 1. 부모 페이지가 커널에 위치한 경우 즉시 반환한다. */
+	
+	if (is_kern_pte(pte)){
+		return true;
+	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
+	/* 2. 부모의 pml4 테이블에 부모 페이지의 주소를 parent_page에 저장한다. */
 	parent_page = pml4_get_page (parent->pml4, va);
+	if (parent_page == NULL){
+		return false;
+	}
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	new_page = palloc_get_page(PAL_USER);
+	if (new_page == NULL){
+		return false;
+	}
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy(new_page, parent_page, PGSIZE);
+	if (is_writable(pte)){
+		writable = 1;
+	} else {
+		writable = 0;
+	}
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
-	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
+	if (!pml4_set_page (current->pml4, va, new_page, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		palloc_free_page(new_page);
+		return false;
 	}
 	return true;
 }
@@ -116,45 +247,82 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  * Hint) parent->tf does not hold the userland context of the process.
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
+// 뭔 말이냐면, 쓰레드의 tf 멤버는 context switching할 때만 갱신됨. 그래서 해당 값은 현재 context를 담고 있지 않음.
+// 커널 스택을 직접 꺼내와야 하나?
+
 static void
 __do_fork (void *aux) {
+	// [구현 7-2] 부모로부터 인터럽트 프레임 전달받기
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = ((struct fork_aux *)(aux)) -> parent;
 	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = ((struct fork_aux *)(aux)) -> parent_if;
+	
 	bool succ = true;
 
+	process_init ();
+
 	/* 1. Read the cpu context to local stack. */
+	// 위에서 변수로 선언한 struct intr_frame if_
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
 		goto error;
-
 	process_activate (current);
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
-	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
+	if (!supplemental_page_table_copy (&current->spt, &parent->spt)){
 		goto error;
+	}
 #else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
+	if (!pml4_for_each (parent->pml4, duplicate_pte, parent)){
 		goto error;
+	}
 #endif
+
+	// [구현 7-5] 자식프로세스 반환값 0으로 설정
+	if_.R.rax = 0;
 
 	/* TODO: Your code goes here.
 	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
+	
+	
+	thread_current() -> next_fd = parent -> next_fd;
 
-	process_init ();
+	//  // 부모 프로세스 복사 가능?
+	for (int fd = 2; fd <= 127; fd++){
+		struct file *parent_file = (parent -> fdt)[fd];
+		if (parent_file != NULL){
+			struct file *copy = file_duplicate(parent_file);
+			if (copy == NULL){
+				goto error;
+			}
+			(thread_current() -> fdt)[fd] = copy;
+		}
+		
+	}
+	
 
+	
 	/* Finally, switch to the newly created process. */
-	if (succ)
+	if (succ){
+		
+		((struct fork_aux *)(aux)) -> success = true;
+		// [구현 8-2] fork 이후 부모/자식 관계 설정
+		list_push_back(&(parent -> children), &(current -> ci -> c_elem));				// 부모의 children 리스트에 자식 삽입
+
+		// [구현 7-6] 자식프로세스 처리 종료 후 세마포어 올리기
+		sema_up(&(parent -> f_sema));
 		do_iret (&if_);
+	}
 error:
+	((struct fork_aux *)(aux)) -> success = false;
+	sema_up(&(parent -> f_sema));
 	thread_exit ();
 }
 
@@ -172,7 +340,7 @@ process_exec (void *f_name) {
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
-
+	
 	/* We first kill the current context */
 	process_cleanup ();
 
@@ -183,6 +351,7 @@ process_exec (void *f_name) {
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -201,22 +370,101 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-	return -1;
+	//[구현 8-3] children 리스트에서 child_tid를 가진 자식을 찾기
+	struct thread *curr = thread_current();
+
+	struct child_info *child;
+	struct list_elem *e;
+	int flag = 0;
+	int wait_return;
+
+	if (!list_empty(&(curr->children))){
+		for (e = list_begin(&(curr -> children)); e != list_end(&(curr -> children)); e = list_next(e)){
+			child = list_entry(e, struct child_info, c_elem);
+			if (child -> tid == child_tid){
+				flag = 1;
+				break;
+			}
+		}
+	}
+
+	if (flag == 0 || child -> waiting){
+		// 찾지 못한 경우 / 리스트가 빈 경우 -1 반환
+		// 동일 child를 대기하는 경우도 -1 반환
+		return -1;
+	}
+
+
+	// [구현 8-4] 자식의 종료 전까지 대기 
+	// 이미 자식이 죽은 경우, 바로 exit code를 얻기
+	if (child -> alive){
+		// waiting을 true로 설정하고, 세마포어를 내리기.
+		child -> waiting = true;
+		sema_down(&(child -> w_sema));
+		child -> waiting = false;
+	}
+
+	// [구현 8-9] 종료된 자식의 child_info free하기
+	// 자식을 리스트에서 없애고, free하고, 자식의 exit 코드 반환.
+	wait_return = child -> exit_code;
+	list_remove(&(child -> c_elem));
+	palloc_free_page(child);
+
+	return wait_return;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
+
+	// 사용자 프로세스만 pml4 테이블을 가짐
+	bool user_process = curr -> pml4 != NULL;
 
 	process_cleanup ();
+
+	// 사용자 프로세스일 때만 아래 코드를 실행.
+	if(user_process){
+		// [구현 5-2] exit 및 exit 메시지 띄우기 구현
+		printf("%s: exit(%d)\n", curr -> name, curr -> exit_code);
+
+		// [구현 8-5] 자식에게 부모의 죽음 알리기
+		struct list_elem *e;
+		// 모든 자식의 parent_alive를 false처리
+		if (!list_empty(&(curr->children))){
+			for (e = list_begin(&(curr -> children)); e != list_end(&(curr -> children)); e = list_next(e)){
+				list_entry(e, struct child_info, c_elem) -> parent_alive = false;
+			}
+		}
+
+		for (int fd = 2; fd < 128; fd++){
+			file_close((curr -> fdt)[fd]);
+		}
+
+		// [구현 뭐였지] file descriptor table 할당해제
+		free(curr -> fdt);
+		curr -> fdt = NULL;
+
+		// [구현 16-3] 파일 종료 시 다시 실행 허용
+		if (curr -> running != NULL){
+			file_close(curr -> running);
+			curr -> running = NULL;
+		}
+
+		// [구현 8-6] 부모가 죽은 경우 child_info free
+		if (!(curr -> ci -> parent_alive)){
+			// 부모가 죽은 경우, 바로 여기서 free
+			palloc_free_page(curr -> ci);
+		} else {
+			// [구현 8-7] 자신의 child_info 수정
+			curr -> ci -> alive = false;	
+			curr -> ci -> exit_code = curr -> exit_code;
+
+			// [구현 8-8] 세마포아를 올려 부모의 대기 해제
+			sema_up(&(curr -> ci -> w_sema));
+		}
+
+	}
 }
 
 /* Free the current process's resources. */
@@ -233,6 +481,7 @@ process_cleanup (void) {
 	 * to the kernel-only page directory. */
 	pml4 = curr->pml4;
 	if (pml4 != NULL) {
+		
 		/* Correct ordering here is crucial.  We must set
 		 * cur->pagedir to NULL before switching page directories,
 		 * so that a timer interrupt can't switch back to the
@@ -243,7 +492,7 @@ process_cleanup (void) {
 		curr->pml4 = NULL;
 		pml4_activate (NULL);
 		pml4_destroy (pml4);
-	}
+	}	
 }
 
 /* Sets up the CPU for running user code in the nest thread.
@@ -334,13 +583,24 @@ load (const char *file_name, struct intr_frame *if_) {
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
-
 	/* Open executable file. */
-	file = filesys_open (file_name);
+
+	// [구현 1-4: file_name 맨 앞 argument만 parse해야 함]
+	char *file_token, *dummy_ptr;
+	char bufferA[128];   // 버퍼
+	
+	strlcpy(bufferA, file_name, 128);
+
+	file_token = strtok_r(bufferA, " ", &dummy_ptr);	// 첫 번째 argument만 저장됨
+
+	file = filesys_open (file_token);
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", file_token);
 		goto done;
 	}
+	// [구현 16-1]
+	file_deny_write(file);
+	thread_current() -> running = file;
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -416,12 +676,47 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	// [구현 1-3] 인자 스택에 넣기 (스택주소는 if_->rsp)
+	// 문자열 자체는 정순, 주소는 역순으로 넣는 식으로 구현해보자
+
+	uint64_t argc = 0;		// 인자의 수
+	char bufferB[128];   // 버퍼
+	strlcpy(bufferB, file_name, 128);
+	char* argv[30];	// 스택 내 인자의 주소 저장
+
+	// 1단계. 문자열 정순으로 푸시한다
+	char *token, *save_ptr;
+	for (token = strtok_r(bufferB, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
+		if_->rsp -= strlen(token) + 1;
+		memcpy((void *)if_->rsp, token, strlen(token) + 1);
+		argv[argc] = (char*)if_->rsp;
+		argc += 1;
+		
+	}
+	argv[argc] = NULL;	// 마지막 널주소
+
+	// 2단계. 패딩 바이트를 추가한다 (사실 이미 초기화할때 0이라 스택 포인터만 올리면 됨)
+	int padding = if_->rsp % 8;
+	if_->rsp -= padding;
+
+	// 3단계. 문자열이 저장된 주소를 역순으로 푸시한다
+	for (int i = argc; i >= 0; i--){
+		if_->rsp -= 8;
+		memcpy((void *)if_->rsp, &argv[i], 8);
+	}
+
+	// 4단계. 널 주소를 푸시한다 (사실 이미 초기화할때 0이라 스택 포인터만 올리면 됨)
+	if_->rsp -= 8;
+
+	// 5단계. 레지스터를 갱신한다
+	if_->R.rdi = argc;
+	if_->R.rsi = if_->rsp + 8;
 
 	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	//file_close (file);
 	return success;
 }
 
@@ -540,8 +835,17 @@ setup_stack (struct intr_frame *if_) {
 	uint8_t *kpage;
 	bool success = false;
 
-	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+
+	// 실제 물리 프레임을 OS 물리 메모리 풀에서 할당
+	// 이 물리 프레임에 대응하는 커널 가상 주소를 반환
+	// kpage: 커널 공간에서, 할당된 물리 페이지에 접근할 수 있는 가상주소
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO);	// 사용자 페이지 할당, 모든 바이트는 0으로 초기화. 이때 한 페이지는 4KB.
+	
+
 	if (kpage != NULL) {
+		// 사용자의 가상 주소 공간에 페이지 테이블을 설정
+		// 사용자 가상 주소 (USER_STACK - PGSIZE(4KB))에, 커널이 가진 물리 페이지 (kpage)를 매핑
+		// true: 사용자 process가 페이지에 쓰기 가능
 		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
 		if (success)
 			if_->rsp = USER_STACK;

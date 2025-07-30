@@ -3,4 +3,6 @@
 
 void syscall_init (void);
 
+#define FD_LIMIT 128
+
 #endif /* userprog/syscall.h */

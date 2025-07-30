@@ -3,6 +3,30 @@
         "*.ejs": "html",
         "*.txt": "plaintext",
         "interrupt.h": "c",
-        "intr-stubs.h": "c"
-    }
+        "intr-stubs.h": "c",
+        "functional": "c",
+        "type_traits": "c",
+        "process.h": "c",
+        "syscall-nr.h": "c",
+        "loader.h": "c",
+        "intrinsic.h": "c",
+        "syscall.h": "c",
+        "*.inc": "c",
+        "palloc.h": "c",
+        "synch.h": "c",
+        "typeinfo": "c",
+        "string.h": "c",
+        "stdlib.h": "c",
+        "numbers": "c",
+        "vaddr.h": "c",
+        "thread.h": "c",
+        "atomic": "c",
+        "mmu.h": "c",
+        "filesys.h": "c",
+        "inode.h": "c",
+        "file.h": "c",
+        "tss.h": "c",
+        "stdio.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }

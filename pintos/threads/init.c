@@ -169,6 +169,7 @@ paging_init (uint64_t mem_end) {
 
 /* Breaks the kernel command line into words and returns them as
    an argv-like array. */
+// CLI를 단어 단위로 분리하고 argv 배열 형태로 반환.
 static char **
 read_command_line (void) {
 	static char *argv[LOADER_ARGS_LEN / 2 + 1];
@@ -234,7 +235,7 @@ parse_options (char **argv) {
 	return argv;
 }
 
-/* Runs the task specified in ARGV[1]. */
+/* ARGV[1]의 task를 실행. ARGV[0]은 run 임에 유의. */
 static void
 run_task (char **argv) {
 	const char *task = argv[1];
@@ -244,6 +245,7 @@ run_task (char **argv) {
 	if (thread_tests){
 		run_test (task);
 	} else {
+		
 		process_wait (process_create_initd (task));
 	}
 #else
